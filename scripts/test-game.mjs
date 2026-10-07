@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import { arithmetic, validateBoard } from '../lib/game.ts';
+assert.equal(arithmetic(['10','×','10']).value,'100');
+assert.equal(arithmetic(['1','2','+','3','×','4']).value,'24');
+assert.equal(arithmetic(['10','÷','3','×','3','×','10']).success,true);
+assert.throws(()=>arithmetic(['1','÷','0']));
+assert.throws(()=>arithmetic(['1','+','×','3']));
+// Eleven-card shortest path: top row, then right column.
+const positions=[0,1,2,3,4,5,11,17,23,29,35];
+const vals=['10','×','10','+','1','-','1','+','1','-','1'];
+const cards=positions.map((p,i)=>({id:String(i),value:vals[i],shape:i===5?'SW':i<5?'EW':'NS',owner:'t1',claimedAt:0}));
+const board=Array(36).fill(null);positions.forEach((p,i)=>board[p]=String(i));
+assert.equal(validateBoard(board,cards,'t1').success,true);
+assert.equal(validateBoard(board,cards,'t1').count,11);
+assert.equal(validateBoard(board,cards,'t2').valid,false);
+const broken=[...board];broken[3]=null;assert.equal(validateBoard(broken,cards,'t1').valid,false);
+const duplicate=[...board];duplicate[1]='0';assert.equal(validateBoard(duplicate,cards,'t1').valid,false);
+assert.equal(validateBoard(board,[...cards,{id:'extra',value:'2',shape:'NS',owner:'t1',claimedAt:0}],'t1',true).valid,false);
+assert.equal(validateBoard(board,[...cards,{id:'extra',value:'2',shape:'NS',owner:'t1',claimedAt:0}],'t1',false).valid,true);
+console.log('PASS: exact arithmetic, precedence, concatenation, path continuity, ownership, uniqueness, all-number rule');

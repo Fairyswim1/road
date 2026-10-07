@@ -1,0 +1,94 @@
+import { database } from "@/db/raw";
+import { shapes, validateBoard, solvingRemaining, type Game, type Team } from "@/lib/game";
+export const dynamic="force-dynamic";
+type Row={id:string;admin_hash:string;pin_hash:string;state:string;revision:number};
+const json=(data:unknown,status=200)=>Response.json(data,{status,headers:{"Cache-Control":"no-store"}});
+const secret=()=>crypto.randomUUID().replaceAll("-","");
+const hash=async(s:string)=>Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(s)))).map(n=>n.toString(16).padStart(2,"0")).join("");
+class GameError extends Error{constructor(message:string,public status=400){super(message);}}
+function fail(message:string,status=400):never{throw new GameError(message,status);}
+function num(v:unknown,min:number,max:number){if(typeof v!=="number"||!Number.isInteger(v)||v<min||v>max)fail("설정 숫자의 범위를 확인해주세요.");return v as number;}
+function title(v:unknown){if(typeof v!=="string"||!v.trim()||v.length>60)fail("이름은 1~60자로 입력해주세요.");return (v as string).trim();}
+function log(g:Game,text:string){g.events.unshift({at:Date.now(),text});g.events=g.events.slice(0,100);}
+function pause(t:Team,now:number){if(t.startedAt){t.usedMs+=Math.max(0,now-t.startedAt);t.startedAt=null;}}
+function finishSearch(g:Game,now:number){g.phase="solve";g.searchEndsAt=Math.min(now,g.searchEndsAt||now);g.teams.forEach(t=>{if(t.status==="searching")t.status="ready";});}
+function project(row:Row,g:Game,token:string,admin:boolean){
+ const team=g.teams.find(t=>t.token===token);
+ if(!admin&&!team)fail("참여 링크가 올바르지 않아요. 관리자에게 모둠 링크를 받아주세요.",403);
+ const now=Date.now();if(g.phase==="search"&&g.searchEndsAt&&now>=g.searchEndsAt)finishSearch(g,now);
+ return {game:admin?g:{...g,cards:g.cards.filter(c=>c.owner===team!.id).map(({secret:_,...c})=>c),teams:g.teams.filter(t=>t.id===team!.id).map(({token:_,...t})=>t),events:g.events.filter(e=>e.text.startsWith(team!.name+" ·"))},role:admin?"admin":"team",teamId:team?.id||null,serverNow:now,revision:row.revision};
+}
+async function getRow(id:string){if(!/^[a-f0-9]{32}$/.test(id))fail("수업 링크가 올바르지 않아요.",404);const r=await database().prepare("SELECT * FROM games WHERE id = ?").bind(id).first<Row>();if(!r)fail("수업을 찾을 수 없어요.",404);return r;}
+function bearer(r:Request){return r.headers.get("authorization")?.replace(/^Bearer /,"")||"";}
+export async function GET(req:Request){try{const row=await getRow(new URL(req.url).searchParams.get("id")||"");const token=bearer(req);return json(project(row,JSON.parse(row.state),token,await hash(token)===row.admin_hash));}catch(e){return error(e);}}
+export async function POST(req:Request){try{
+ if(req.headers.get("origin")&&req.headers.get("origin")!==new URL(req.url).origin)fail("허용되지 않은 요청이에요.",403);
+ const raw=await req.text();if(raw.length>18000)fail("요청이 너무 커요.");const b=JSON.parse(raw);
+ if(b.action==="create"){
+  const id=secret(),adminToken=secret();
+  if(!Array.isArray(b.names)||b.names.length<2||b.names.length>10)fail("모둠은 2~10개로 설정해주세요.");
+  if(!/^\d{6}$/.test(b.pin||""))fail("관리자 PIN은 숫자 6자리로 입력해주세요.");
+  const names=b.names.map(title);if(new Set(names).size!==names.length)fail("모둠 이름은 서로 다르게 입력해주세요.");
+  const count=num(b.cardCount,60,240);
+  const values=["1","2","3","4","5","6","7","8","9","10","+","-","×","÷","+","-","×","÷"];
+  const g:Game={id,title:title(b.title),phase:"setup",searchMinutes:num(b.searchMinutes,1,120),solveMinutes:num(b.solveMinutes,1,60),searchEndsAt:null,allNumbers:b.allNumbers===true,teams:names.map((name:string,i:number)=>({id:`t${i+1}`,name,token:secret(),status:"searching",board:Array(36).fill(null),boardVersion:0,usedMs:0,startedAt:null,result:null})),cards:Array.from({length:count},(_,i)=>({id:String(i+1).padStart(3,"0"),value:values[i%values.length],shape:shapes[Math.floor(i/values.length)%6],secret:secret().slice(0,12).toUpperCase(),owner:null,claimedAt:null})),events:[]};
+  // Shuffle the distribution across marker numbers; card orientations stay fixed after creation.
+  const faces=g.cards.map(c=>({value:c.value,shape:c.shape}));
+  for(let i=faces.length-1;i>0;i--){const a=new Uint32Array(1);crypto.getRandomValues(a);const j=a[0]%(i+1);[faces[i],faces[j]]=[faces[j],faces[i]];}
+  g.cards.forEach((c,i)=>Object.assign(c,faces[i]));log(g,"수업이 만들어졌어요.");
+  const adminHash=await hash(adminToken),pinHash=await hash(id+b.pin);
+  await database().prepare("INSERT INTO games (id, admin_hash, pin_hash, state, revision, created_at) VALUES (?, ?, ?, ?, 0, ?)").bind(id,adminHash,pinHash,JSON.stringify(g),Date.now()).run();
+  return json({id,adminToken,...project({id,admin_hash:adminHash,pin_hash:pinHash,state:"",revision:0},g,adminToken,true)});
+ }
+ const token=bearer(req),tokenHash=await hash(token);
+ for(let retry=0;retry<8;retry++){
+  const row=await getRow(b.id),g:Game=JSON.parse(row.state),admin=tokenHash===row.admin_hash;
+  const actor=g.teams.find(t=>t.token===token);if(!admin&&!actor)fail("접근 권한이 없어요.",403);
+  const now=Date.now();if(g.phase==="search"&&g.searchEndsAt&&now>=g.searchEndsAt)finishSearch(g,now);
+  let message="저장했어요.";
+  if(b.action==="claim"){
+   if(!actor)fail("모둠 참여 화면에서 획득해주세요.",403);
+   if(g.phase!=="search"||actor.status!=="searching")fail("현재는 카드를 수색할 수 없어요.",409);
+   const c=g.cards.find(c=>c.secret===String(b.code||"").trim().toUpperCase());if(!c)fail("이 수업의 카드 코드가 아니에요.",404);
+   if(c.owner===actor.id)message="이미 우리 모둠이 획득한 카드예요.";
+   else{if(c.owner)fail("다른 모둠이 먼저 획득한 카드예요.",409);c.owner=actor.id;c.claimedAt=now;message=`${c.value} 카드 획득!`;log(g,`${actor.name} · ${c.id}번 ${c.value} 카드 획득`);}
+   if(g.cards.every(c=>c.owner))finishSearch(g,now);
+  }else if(b.action==="return"){
+   const t=admin?g.teams.find(t=>t.id===b.teamId):actor;if(!t)fail("모둠을 찾을 수 없어요.");
+   if(g.phase!=="search"&&g.phase!=="solve")fail("수색 시작 후 복귀할 수 있어요.");
+   if(t.status==="searching"){t.status="ready";log(g,`${t.name} · 수색 종료, 관리자에게 복귀`);}
+  }else{
+   if(!admin)fail("관리자만 사용할 수 있어요.",403);
+   if(b.action==="unlock"){if(await hash(g.id+String(b.pin))!==row.pin_hash)fail("관리자 PIN이 맞지 않아요.",403);return json({ok:true});}
+   if(b.action==="start"){
+    if(g.phase!=="setup")fail("이미 시작된 수업이에요.",409);g.phase="search";g.searchEndsAt=now+g.searchMinutes*60000;log(g,"카드 수색이 시작됐어요.");
+   }else if(b.action==="stop"){
+    if(g.phase!=="search")fail("수색 중일 때만 종료할 수 있어요.",409);finishSearch(g,now);log(g,"전체 카드 수색이 종료됐어요.");
+   }else if(b.action==="rename"){
+    if(g.phase!=="setup")fail("시작 전 모둠 이름을 변경해주세요.");const t=g.teams.find(t=>t.id===b.teamId);if(!t)fail("모둠을 찾을 수 없어요.");const name=title(b.name);if(g.teams.some(x=>x.id!==t.id&&x.name===name))fail("이미 사용 중인 이름이에요.");t.name=name;
+   }else if(b.action==="solve"||b.action==="pause"||b.action==="board"||b.action==="submit"){
+    const t=g.teams.find(t=>t.id===b.teamId);if(!t)fail("모둠을 찾을 수 없어요.");
+    if(g.phase==="setup"||g.phase==="ended"||t.status==="searching")fail("모둠의 수색을 종료한 후 수식판을 열어주세요.");
+    if(t.status==="submitted")fail("이미 제출한 수식판이에요.",409);
+    if(b.action==="solve"){
+     g.teams.forEach(x=>pause(x,now));if(solvingRemaining(g,t,now)<=0)fail("이 모둠의 풀이 시간이 끝났어요.",409);t.status="solving";t.startedAt=now;log(g,`${t.name} · 수식 풀이 시작`);
+    }else if(b.action==="pause")pause(t,now);
+    else{
+     if(b.action==="board"){
+      if(!t.startedAt||solvingRemaining(g,t,now)<=0)fail("풀이 시간이 진행 중일 때만 배치할 수 있어요.",409);
+      if(b.boardVersion!==t.boardVersion)fail("다른 화면에서 판이 변경됐어요. 최신 판을 확인해주세요.",409);
+      if(!Array.isArray(b.board)||b.board.length!==36||b.board.some((id:unknown)=>id!==null&&(typeof id!=="string"||!g.cards.some(c=>c.id===id&&c.owner===t.id))))fail("사용할 수 없는 카드가 포함됐어요.");
+      const ids=b.board.filter(Boolean);if(new Set(ids).size!==ids.length)fail("카드는 한 번씩만 사용할 수 있어요.");t.board=b.board;t.boardVersion++;t.result=null;
+     }else{
+      const result=validateBoard(t.board,g.cards,t.id,g.allNumbers);if(!result.valid)fail(result.message);pause(t,now);t.status="submitted";t.result=result;log(g,`${t.name} · 최종 제출: ${result.value}`);message="최종 제출했어요.";
+      if(g.teams.every(t=>t.status==="submitted"))g.phase="ended";
+     }
+    }
+   }else fail("알 수 없는 작업이에요.");
+  }
+  const saved=await database().prepare("UPDATE games SET state = ?, revision = revision + 1 WHERE id = ? AND revision = ?").bind(JSON.stringify(g),g.id,row.revision).run();
+  if(saved.meta.changes)return json({...project({...row,revision:row.revision+1},g,token,admin),message});
+ }
+ fail("동시에 요청이 많아요. 잠시 후 다시 시도해주세요.",409);
+ }catch(e){return error(e);}}
+function error(e:unknown){if(e instanceof GameError)return json({error:e.message},e.status);console.error("Game request failed",e instanceof Error?e.message:"unknown");return json({error:"저장소에 연결하지 못했어요. 입력을 유지한 채 다시 시도해주세요."},503);}
