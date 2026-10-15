@@ -109,7 +109,6 @@ export async function POST(req:Request){try{
   await env.BUCKET.put(key,await target.arrayBuffer());
   try{await save(a,{...a.ar,ready:true,bundle:key});}catch(e){await env.BUCKET.delete(key);throw e;}
  }else{
-  if(a.ar.targets.length>=20)fail("수업당 물건은 최대 20개입니다. 한 물건에 여러 카드를 배치할 수 있어요.");
   const photo=form.get("photo"),label=form.get("label"),ids=JSON.parse(String(form.get("cards")||"[]"));
   const prepared=await picture(form.get("problemImage"));
   const task=problem(form.get("question")||"",JSON.parse(String(form.get("answers")||"[]")),!!prepared);
