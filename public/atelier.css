@@ -1,0 +1,22 @@
+/* Local licensed fonts and generated materials shared by every game surface. */
+@font-face{font-family:"Road Myeongjo";src:url('/fonts/NanumMyeongjo-Regular.woff') format('woff');font-style:normal;font-weight:400;font-display:swap}
+@font-face{font-family:"Road Myeongjo";src:url('/fonts/NanumMyeongjo-Bold.woff') format('woff');font-style:normal;font-weight:600 900;font-display:swap}
+body,body :where(*){font-family:"Road Myeongjo",Georgia,"Batang",serif!important}
+body{line-height:1.75}input,textarea,select{line-height:1.6}h1,h2,h3{word-break:keep-all}button{word-break:keep-all}input::placeholder,textarea::placeholder{font-weight:400}.brand{letter-spacing:.05em}.eyebrow,.challenge-label{letter-spacing:.12em}
+@media screen{
+.card-face,.card-face.operator,.own-card{background:#121114 url('/art/card-slate.webp') center/100% 100%;border:0;border-radius:3px;box-shadow:0 3px 7px #0007,inset 0 0 0 1px #cab6a64d;color:#e95f6b}
+.card-face svg,.own-card svg{filter:drop-shadow(0 0 2px #ec334760);color:#e95f6b}
+.card-face b,.card-face.operator b,.own-card b{top:12%;right:12%;font-weight:800;color:#fff5de;text-shadow:0 2px 2px #000,0 0 7px #000,0 1px 0 #bfa37d;line-height:1}
+.board-cell .card-face{border:0;border-radius:2px}.inventory>button{transition:transform .15s,box-shadow .15s}.inventory>button:not(:disabled):hover{transform:translateY(-3px)}.inventory>button:focus-visible,.inventory>.selected{outline:2px solid #f8c8a3;outline-offset:1px;background:#5b3038;box-shadow:0 0 14px #e7686255}
+.board-area{background:linear-gradient(150deg,#282023f2,#151214f5);border-color:#796253;box-shadow:0 15px 40px #0006,inset 0 0 0 4px #302528}
+.board-grid{background:#151315 url('/art/board-tray.webp') center/100% 100%;padding:5.7%;border:0;border-radius:3px;gap:2px;box-shadow:0 6px 14px #0009;isolation:isolate}
+.board-cell{background:#17141a80;border:1px solid #84766a55;box-shadow:inset 0 1px 8px #0006;border-radius:1px;color:#9b8d83}
+.board-cell:has(.card-face){background:transparent;border-color:transparent;box-shadow:none}
+.board-cell.endpoint{border:1px solid #e4b58b;background:linear-gradient(135deg,#742e3855,#301b2277);color:#ffe1ba}
+.board-cell.selected{outline:2px solid #ffd5a3;z-index:2;box-shadow:0 0 12px #ffa46e88}
+.board-cell .card-face b{font-size:clamp(1.15rem,2.8vw,2.3rem)}.board-top{letter-spacing:.04em}.board-top>span:first-child,.board-top>span:last-child{color:#f4cfaa}.board-bottom{margin-top:6px}.board-inventory{border-top-color:#b48b70}
+.equation{border-color:#856958;background:linear-gradient(100deg,#251b20,#141114)}.equation strong{font-size:1.15rem;line-height:1.8}.equation.valid{border-color:#e8c38f;box-shadow:inset 3px 0 #e8c38f,0 0 20px #c27c3620}
+.practice-entry{display:grid;gap:18px;border-top:2px solid #cba17a}.practice-entry .eyebrow{font-size:.7rem;margin-bottom:8px}.practice-entry p:not(.eyebrow){font-size:.9rem;color:#d1c2b7;margin-top:8px}.practice-badge{margin-left:auto;border:1px solid #ad8869;padding:9px 13px;color:#e7bd90;font-size:.75rem;letter-spacing:.1em}.practice-badge span{display:block;font-size:.8rem;letter-spacing:0;color:#e9d9ca}.practice-notice{margin-top:0}.team-panel .button-row{flex-wrap:wrap}.team-panel .button-row button{flex:1 1 auto}#practice-link{display:block;margin-top:18px;padding:12px 16px;border:1px solid #b0856f;color:#f7d0aa;background:#38272c;text-align:center;text-decoration:none}#practice-link[hidden]{display:none}.ar-link{line-height:1.7}
+@media(max-width:700px){.shell{padding-left:14px;padding-right:14px}.board-area{padding:10px}.board-grid{padding:5.7%;gap:1px}.board-cell .card-face b{font-size:clamp(1rem,4.1vw,1.6rem)}.board-cell>span{font-size:.68rem}.board-header h1{font-size:1.55rem}.board-header .eyebrow{font-size:.78rem}.practice-badge{margin-left:0;flex:1}.board-header>button{padding:10px;font-size:.8rem}.board-top>span:nth-child(2){font-size:.65rem}.board-inventory .inventory{grid-template-columns:repeat(5,minmax(0,1fr))}.inventory .card-face b{font-size:1.45rem}.mini-cards .card-face b{font-size:.95rem}.panel{padding:18px}.brand span{display:none}}
+@media(prefers-reduced-motion:reduce){.inventory>button{transition:none}}
+}

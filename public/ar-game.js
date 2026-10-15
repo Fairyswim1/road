@@ -27,7 +27,7 @@ function render(){
   if(versionSeen!==ar.version){versionSeen=ar.version;renderTargets();}
  }else{
   $('phase').textContent=canSearch()?'수색 중 · 남은 시간 '+Math.max(0,Math.ceil((g.searchEndsAt-view.serverNow)/60000))+'분':g.phase==='setup'?'선생님의 시작 신호를 기다려주세요.':'수색 종료 · 관리자 패드에서 수식로드를 완성하세요.';
-  $('scan').disabled=!canSearch()||busy||scanStarting;$('own-count').textContent=g.cards.length+'장';$('own-cards').replaceChildren(...g.cards.map(cardNode));if(!g.cards.length){const p=document.createElement('p');p.textContent='아직 획득한 카드가 없어요.';$('own-cards').append(p);}
+  $('practice-link').href=backLink()+'&practice=1';$('practice-link').hidden=g.phase==='setup';$('scan').disabled=!canSearch()||busy||scanStarting;$('own-count').textContent=g.cards.length+'장';$('own-cards').replaceChildren(...g.cards.map(cardNode));if(!g.cards.length){const p=document.createElement('p');p.textContent='아직 획득한 카드가 없어요.';$('own-cards').append(p);}
   if(!canSearch()&&(vision||scanStarting)){close();message('수색이 종료됐습니다. 모은 카드는 저장되어 있어요.');}
  }
  updateButtons();

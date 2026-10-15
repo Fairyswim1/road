@@ -75,7 +75,15 @@ export async function POST(req:Request){try{
   const actor=g.teams.find(t=>t.token===token);if(!admin&&!actor)fail("접근 권한이 없어요.",403);
   const now=Date.now();if(g.phase==="search"&&g.searchEndsAt&&now>=g.searchEndsAt)finishSearch(g,now);
   let message="저장했어요.";
-  if(b.action==="claim"){
+  if(b.action==="practice"){
+   if(!admin&&b.teamId!==actor!.id)fail("우리 모둠 연습판만 바꿀 수 있어요.",403);
+   const t=admin?g.teams.find(t=>t.id===b.teamId):actor;if(!t)fail("모둠을 찾을 수 없어요.");
+   if(g.phase==="setup"||g.phase==="ended"||t.status==="submitted")fail("수색 시작부터 최종 제출 전까지 연습할 수 있어요.",409);
+   if(b.boardVersion!==(t.practiceVersion||0))fail("다른 기기에서 연습판을 바꿨어요. 최신 판을 확인하고 다시 놓아주세요.",409);
+   if(!Array.isArray(b.board)||b.board.length!==36||b.board.some((id:unknown)=>id!==null&&(typeof id!=="string"||!g.cards.some(c=>c.id===id&&c.owner===t.id))))fail("우리 모둠이 획득한 카드만 연습에 사용할 수 있어요.");
+   const ids=b.board.filter(Boolean);if(new Set(ids).size!==ids.length)fail("카드는 한 번씩만 사용할 수 있어요.");
+   t.practiceBoard=b.board;t.practiceVersion=(t.practiceVersion||0)+1;message="연습판을 저장했어요.";
+  }else if(b.action==="claim"){
    if(!actor)fail("모둠 참여 화면에서 획득해주세요.",403);
    if(g.phase!=="search"||actor.status!=="searching")fail("현재는 카드를 수색할 수 없어요.",409);
    const c=g.cards.find(c=>c.secret===String(b.code||"").trim().toUpperCase());if(!c)fail("이 수업의 카드 코드가 아니에요.",404);
