@@ -15,16 +15,16 @@ const ar=(action,body,token=adminToken)=>post(`/api/game-ar?id=${id}&action=${ac
 const read=async token=>fetch(`${base}/api/game?id=${id}`,{headers:{Authorization:`Bearer ${token}`}}).then(r=>r.json());
 const form=new FormData();
 form.set('target',new Blob([new Uint8Array(200)]),'target.mind');form.set('photo',new Blob([new Uint8Array(200)]),'photo.jpg');form.set('version','0');form.set('label','교사용 비밀 장소');form.set('cards',JSON.stringify([g.cards[0].id,g.cards[1].id]));form.set('question','1 ÷ 2 = ?');form.set('answers',JSON.stringify(['0.5','1/2']));
-assert.equal((await ar('upload',form)).status,200);
+const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aY1cAAAAASUVORK5CYII=','base64');form.set('problemImage',new Blob([png],{type:'image/png'}),'question.png');assert.equal((await ar('upload',form)).status,200);
 const target=(await read(adminToken)).game.ar.targets[0];
-assert.equal((await ar('problem',{targetId:target.id,question:'',answers:['1']})).status,400);
+assert.equal((await ar('problem',{targetId:target.id,question:'',answers:['1'],removeImage:true})).status,400);
 assert.equal((await ar('problem',{targetId:target.id,question:'1 ÷ 2의 값은?',answers:['0.5','1/2']})).status,200);
-const bundle=new FormData();bundle.set('version','2');bundle.set('target',new Blob([new Uint8Array(200)]),'bundle.mind');
+const edited=new FormData();edited.set('targetId',target.id);edited.set('question','');edited.set('answers',JSON.stringify(['0.5','1/2']));edited.set('problemImage',new Blob([png],{type:'image/png'}),'replacement.png');assert.equal((await ar('problem',edited)).status,200);const bundle=new FormData();bundle.set('version','3');bundle.set('target',new Blob([new Uint8Array(200)]),'bundle.mind');
 assert.equal((await ar('publish',bundle)).status,200);assert.equal((await game('start')).status,200);
 assert.equal((await ar('problem',{targetId:target.id,question:'새 문제',answers:['1']})).status,409);
 assert.equal((await ar('problem',{targetId:target.id,question:'새 문제',answers:['1']},a.token)).status,403);
 const preview=await ar('discover',{targetId:target.id},a.token);
-assert.equal(preview.data.card,null);assert.equal(preview.data.code,null);assert.equal(preview.data.question.prompt,'1 ÷ 2의 값은?');assert.ok(!JSON.stringify(preview).includes('answers'));
+assert.equal(preview.data.card,null);assert.equal(preview.data.code,null);assert.equal(preview.data.question.prompt,'');assert.ok(preview.data.question.image);const pic=await fetch(base+preview.data.question.image,{headers:{Authorization:`Bearer ${a.token}`}});assert.equal(pic.status,200);assert.equal(pic.headers.get('content-type'),'image/png');assert.equal((await fetch(base+preview.data.question.image,{headers:{Authorization:`Bearer ${b.token}`}})).status,403);assert.equal((await fetch(`${base}/api/game-ar?id=${id}&asset=problem&target=${target.id}`,{headers:{Authorization:`Bearer ${a.token}`}})).status,403);assert.ok(!JSON.stringify(preview).includes('answers'));
 assert.equal((await game('claim',{code:g.cards[0].secret},a.token)).status,403);
 assert.equal((await ar('answer',{targetId:target.id,answer:'3'},a.token)).data.correct,false);
 assert.equal((await game('claim',{code:g.cards[0].secret},a.token)).status,403);
@@ -37,4 +37,4 @@ const remaining=await ar('discover',{targetId:target.id},a.token);assert.ok(rema
 assert.equal((await read(adminToken)).game.phase,'solve');assert.equal((await ar('answer',{targetId:target.id,answer:'0.5'},a.token)).status,409);
 for(const team of [a,b])assert.equal((await game('submit',{teamId:team.id,incomplete:true})).status,200);
 assert.equal((await read(adminToken)).game.phase,'ended');
-console.log('PASS AR problem edit, server-only answers, pre-answer claim rejection, per-team unlock, concurrent exclusive claim, privacy, automatic search end, incomplete submissions');
+console.log('PASS image upload/replace, image-only question, protected image access, AR problem edit, server-only answers, pre-answer claim rejection, per-team unlock, concurrent exclusive claim, privacy, automatic search end, incomplete submissions');

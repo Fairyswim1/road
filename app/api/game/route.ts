@@ -70,7 +70,7 @@ export async function POST(req:Request){try{
    if(b.action==="unlock"){if(await hash(g.id+String(b.pin))!==row.pin_hash)fail("관리자 PIN이 맞지 않아요.",403);return json({ok:true});}
    if(b.action==="start"){
     if(g.mode==="ar"&&(!g.ar?.ready||!g.ar.targets.length||!g.ar.bundle))fail("AR 카드 배치를 완료하고 탐색 데이터를 저장해주세요.",409);
-    if(g.mode==="ar"&&g.ar?.targets.some(t=>!t.question||!t.answers?.length))fail("모든 물건에 수학문제와 정답을 등록해주세요.",409);
+    if(g.mode==="ar"&&g.ar?.targets.some(t=>(!t.question&&!t.problemImage)||!t.answers?.length))fail("모든 물건에 수학문제와 정답을 등록해주세요.",409);
     if(g.phase!=="setup")fail("이미 시작된 수업이에요.",409);g.phase="search";g.searchEndsAt=now+g.searchMinutes*60000;log(g,"카드 수색이 시작됐어요.");
    }else if(b.action==="stop"){
     if(g.phase!=="search")fail("수색 중일 때만 종료할 수 있어요.",409);finishSearch(g,now);log(g,"전체 카드 수색이 종료됐어요.");
