@@ -1,5 +1,5 @@
 import { database } from "@/db/raw";
-import { shapes, validateBoard, solvingRemaining, type Game, type Team } from "@/lib/game";
+import { shapes, validateBoard, solvingRemaining, hasClaimedAtTarget, type Game, type Team } from "@/lib/game";
 export const dynamic="force-dynamic";
 type Row={id:string;admin_hash:string;pin_hash:string;state:string;revision:number};
 const json=(data:unknown,status=200)=>Response.json(data,{status,headers:{"Cache-Control":"no-store"}});
@@ -91,6 +91,8 @@ export async function POST(req:Request){try{
     const target=g.ar?.targets.find(t=>t.cards.includes(c.id));
     if(!target)fail("획득할 수 있는 카드가 없어요.",409);
     if(!target.solvedBy?.includes(actor.id))fail("먼저 이 물건의 수학문제를 풀어주세요.",403);
+    // Rechecked on every CAS retry; simultaneous phones cannot claim different rewards here.
+    if(c.owner!==actor.id&&hasClaimedAtTarget(g,target,actor.id))fail("우리 모둠은 이 장소에서 이미 1장을 획득했어요. 다른 장소를 찾아보세요.",409);
    }
    if(c.owner===actor.id)message="이미 우리 모둠이 획득한 카드예요.";
    else{if(c.owner)fail("지금 획득할 수 있는 카드가 없어요. 계속 탐색해주세요.",409);c.owner=actor.id;c.claimedAt=now;message=`${c.value} 카드 획득!`;log(g,`${actor.name} · ${c.id}번 ${c.value} 카드 획득`);}

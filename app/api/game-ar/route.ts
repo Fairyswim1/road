@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { database } from "@/db/raw";
-import type { Game, ArSetup } from "@/lib/game";
+import { hasClaimedAtTarget, type Game, type ArSetup } from "@/lib/game";
 export const dynamic="force-dynamic";
 type Row={id:string;admin_hash:string;state:string;revision:number};
 class ApiError extends Error{constructor(message:string,public status=400){super(message);}}
@@ -16,6 +16,7 @@ function problem(question:unknown,answers:unknown,hasImage=false){
 }
 async function discovered(a:Awaited<ReturnType<typeof auth>>,targetId:string){
  const target=a.ar.targets.find(t=>t.id===targetId),card=target?a.g.cards.find(c=>target.cards.includes(c.id)&&!c.owner):undefined;
+ if(target&&hasClaimedAtTarget(a.g,target,a.team!.id))return {card:null,code:null,claimed:true};
  if(!target||!card)return {card:null,code:null};
  if(!target.solvedBy?.includes(a.team!.id))return {question:{targetId:target.id,prompt:target.question,image:target.problemImage?`/api/game-ar?id=${a.g.id}&asset=problem&target=${target.id}&ticket=${await imageTicket(target.problemImage,a.team!.token!)}`:null},card:null,code:null};
  return {card:{id:card.id,value:card.value,shape:card.shape},code:card.secret};
@@ -71,6 +72,7 @@ export async function POST(req:Request){try{
   for(let retry=0;retry<6;retry++){
    const current=retry?await auth(req):a;searching(current);if(!current.team||current.admin)fail("모둠 링크로 접속하세요.",403);
    const target=current.ar.targets.find(t=>t.id===b.targetId);
+   if(target&&hasClaimedAtTarget(current.g,target,current.team.id))return json(await discovered(current,target.id));
    if(!target||!current.g.cards.some(c=>target.cards.includes(c.id)&&!c.owner))return json({card:null,code:null});
    if(target.solvedBy?.includes(current.team.id))return json(await discovered(current,target.id));
    if(!target.answers.some(x=>normalize(x)===normalize(b.answer)))return json({correct:false,message:"다시 생각해보세요. 정답을 입력하면 카드가 나타납니다."});
