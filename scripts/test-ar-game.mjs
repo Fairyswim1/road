@@ -35,6 +35,39 @@ const races=await Promise.all([a,b].map(t=>game('claim',{code:solved.data.code},
 const own=await read(a.token);assert.equal(own.game.ar,undefined);assert.equal(own.game.teams.length,1);assert.deepEqual(own.game.events,[]);assert.ok(!JSON.stringify(own).includes('교사용 비밀 장소'));
 const remaining=await ar('discover',{targetId:target.id},a.token);assert.ok(remaining.data.card);assert.equal((await game('claim',{code:remaining.data.code},a.token)).status,200);
 assert.equal((await read(adminToken)).game.phase,'solve');assert.equal((await ar('answer',{targetId:target.id,answer:'0.5'},a.token)).status,409);
+const played=await read(adminToken),board=Array(36).fill(null);board[0]=played.game.cards.find(c=>c.owner===a.id).id;assert.equal((await game('solve',{teamId:a.id})).status,200);assert.equal((await game('board',{teamId:a.id,board,boardVersion:0})).status,200);
 for(const team of [a,b])assert.equal((await game('submit',{teamId:team.id,incomplete:true})).status,200);
 assert.equal((await read(adminToken)).game.phase,'ended');
 console.log('PASS image upload/replace, image-only question, protected image access, AR problem edit, server-only answers, pre-answer claim rejection, per-team unlock, concurrent exclusive claim, privacy, automatic search end, incomplete submissions');
+
+// Completed classes can be reused without leaking old links, answers or progress.
+const before=await read(adminToken);assert.ok(before.game.teams[0].board[0]);assert.ok(before.game.teams[0].usedMs>0);const requestId=crypto.randomUUID().replaceAll('-','');
+const payload={action:'clone',id,requestId,title:'새 학급',names:['새1모둠','새2모둠','새3모둠'],pin:'654321'};
+assert.equal((await post('/api/game',payload,a.token)).status,403);
+const copies=await Promise.all([post('/api/game',payload,adminToken),post('/api/game',payload,adminToken)]);
+assert.ok(copies.every(r=>r.status===200));assert.equal(copies[0].data.id,copies[1].data.id);
+const copy=copies[0].data,cg=copy.game,ct=cg.teams[0],targetCopy=cg.ar.targets[0];
+assert.notEqual(copy.id,id);assert.notEqual(copy.adminToken,adminToken);assert.equal(cg.phase,'setup');assert.equal(cg.searchEndsAt,null);assert.equal(cg.teams.length,3);
+assert.equal(cg.searchMinutes,g.searchMinutes);assert.equal(cg.solveMinutes,g.solveMinutes);assert.equal(cg.allNumbers,g.allNumbers);
+assert.ok(cg.cards.every((c,i)=>c.owner===null&&c.claimedAt===null&&c.secret!==before.game.cards[i].secret&&c.value===before.game.cards[i].value&&c.shape===before.game.cards[i].shape));
+assert.ok(cg.teams.every(t=>t.board.every(x=>x===null)&&t.boardVersion===0&&t.usedMs===0&&t.startedAt===null&&t.result===null&&t.status==='searching'&&!g.teams.some(old=>old.token===t.token)));
+assert.deepEqual(targetCopy.solvedBy,[]);assert.notEqual(targetCopy.id,target.id);assert.equal(targetCopy.problemImage,before.game.ar.targets[0].problemImage);assert.equal(cg.ar.ready,true);assert.equal(cg.ar.bundle,before.game.ar.bundle);
+assert.deepEqual((await read(adminToken)).game,before.game);
+const fetchCopy=async(token,query='')=>fetch(`${base}/api/game-ar?id=${copy.id}${query}`,{headers:{Authorization:`Bearer ${token}`}});
+assert.equal((await fetchCopy(adminToken)).status,403);assert.equal((await fetchCopy(a.token)).status,403);
+for(const asset of ['photo','target','problem'])assert.equal((await fetchCopy(copy.adminToken,`&asset=${asset}&target=${targetCopy.id}`)).status,200);
+const cp=(action,extra={},token=copy.adminToken)=>post('/api/game',{action,id:copy.id,...extra},token);
+assert.equal((await cp('unlock',{pin:'246810'})).status,403);assert.equal((await cp('unlock',{pin:'654321'})).status,200);
+// Editing the new question does not alter the source question or its image.
+assert.equal((await post(`/api/game-ar?id=${copy.id}&action=problem`,{targetId:targetCopy.id,question:'새 학급 문제',answers:['7']},copy.adminToken)).status,200);
+assert.equal((await read(adminToken)).game.ar.targets[0].question,before.game.ar.targets[0].question);
+assert.equal((await cp('start')).status,200);assert.equal((await fetchCopy(ct.token,'&asset=bundle')).status,200);
+const discover=await post(`/api/game-ar?id=${copy.id}&action=discover`,{targetId:targetCopy.id},ct.token);
+assert.equal(discover.data.card,null);assert.equal(discover.data.question.prompt,'새 학급 문제');
+assert.equal((await cp('claim',{code:cg.cards[0].secret},ct.token)).status,403);
+assert.equal((await cp('claim',{code:g.cards[0].secret},ct.token)).status,404);
+const newAnswer=await post(`/api/game-ar?id=${copy.id}&action=answer`,{targetId:targetCopy.id,answer:'7'},ct.token);assert.equal(newAnswer.data.correct,true);assert.equal((await cp('claim',{code:newAnswer.data.code},ct.token)).status,200);
+const retry=await post('/api/game',payload,adminToken);assert.equal(retry.data.id,copy.id);assert.equal(retry.data.game.phase,'search');
+const after=await read(adminToken);assert.equal(after.revision,before.revision);assert.deepEqual(after.game,before.game);
+const {writeFileSync,mkdirSync}=await import('node:fs');mkdirSync('.sites-runtime',{recursive:true});writeFileSync('.sites-runtime/clone-session.json',JSON.stringify({id,adminToken}));
+console.log('PASS completed-class clone, all assets readable, fresh tokens and card codes, progress reset, concurrent retry deduplication, independent edits, original unchanged');

@@ -43,6 +43,33 @@ export async function POST(req:Request){try{
   return json({id,adminToken,...project({id,admin_hash:adminHash,pin_hash:pinHash,state:"",revision:0},g,adminToken,true)});
  }
  const token=bearer(req),tokenHash=await hash(token);
+ if(b.action==="clone"){
+  const source=await getRow(b.id);if(tokenHash!==source.admin_hash)fail("관리자만 수업을 복제할 수 있어요.",403);
+  if(!/^[a-f0-9]{32}$/.test(b.requestId||""))fail("복제 요청을 다시 열어주세요.");
+  if(!Array.isArray(b.names)||b.names.length<2||b.names.length>10)fail("모둠은 2~10개로 설정해주세요.");
+  const names=b.names.map(title),newTitle=title(b.title);
+  if(new Set(names).size!==names.length)fail("모둠 이름은 서로 다르게 입력해주세요.");
+  if(!/^\d{6}$/.test(b.pin||""))fail("새 수업의 관리자 PIN은 숫자 6자리로 입력해주세요.");
+  // Stable credentials make a retry of the same request return the same new class.
+  const id=(await hash(source.id+":clone:"+b.requestId)).slice(0,32),adminToken=await hash(token+":clone:"+b.requestId),adminHash=await hash(adminToken);
+  let row=await database().prepare("SELECT * FROM games WHERE id = ?").bind(id).first<Row>();
+  if(!row){
+   const original:Game=JSON.parse(source.state);
+   const g:Game={id,title:newTitle,phase:"setup",searchMinutes:original.searchMinutes,solveMinutes:original.solveMinutes,searchEndsAt:null,allNumbers:original.allNumbers,
+    teams:names.map((name:string,i:number)=>({id:`t${i+1}`,name,token:secret(),status:"searching",board:Array(36).fill(null),boardVersion:0,usedMs:0,startedAt:null,result:null})),
+    cards:original.cards.map(c=>({id:c.id,value:c.value,shape:c.shape,secret:secret().slice(0,12).toUpperCase(),owner:null,claimedAt:null})),events:[]};
+   if(original.mode==="ar"){
+    g.mode="ar";
+    // Assets are immutable and served through each class's authorization. Edits write new keys.
+    g.ar=original.ar?{version:0,ready:original.ar.ready,bundle:original.ar.bundle,targets:original.ar.targets.map(t=>({...t,id:secret(),cards:[...t.cards],answers:[...t.answers],solvedBy:[]}))}:{version:0,ready:false,bundle:null,targets:[]};
+   }
+   log(g,"기존 수업의 배치와 문제를 복사해 새 수업을 만들었어요.");
+   await database().prepare("INSERT OR IGNORE INTO games (id, admin_hash, pin_hash, state, revision, created_at) VALUES (?, ?, ?, ?, 0, ?)").bind(id,adminHash,await hash(id+b.pin),JSON.stringify(g),Date.now()).run();
+   row=await getRow(id);
+  }
+  if(row.admin_hash!==adminHash)fail("새 수업을 열지 못했어요. 다시 복제해주세요.",409);
+  return json({id,adminToken,...project(row,JSON.parse(row.state),adminToken,true)});
+ }
  for(let retry=0;retry<8;retry++){
   const row=await getRow(b.id),g:Game=JSON.parse(row.state),admin=tokenHash===row.admin_hash;
   const actor=g.teams.find(t=>t.token===token);if(!admin&&!actor)fail("접근 권한이 없어요.",403);
