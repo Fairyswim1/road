@@ -23,3 +23,15 @@ body{line-height:1.75}input,textarea,select{line-height:1.6}h1,h2,h3{word-break:
 @media(max-width:900px){.lesson-item{align-items:flex-start;flex-direction:column}.lesson-actions{max-width:none;justify-content:flex-start;width:100%}.lesson-actions>*{flex:1 1 auto}}
 @media(max-width:700px){.saved-lessons .section-title{align-items:flex-start;gap:12px}.saved-lessons .section-title>button{font-size:.76rem!important}.lesson-item{padding:15px}.lesson-import form{grid-template-columns:1fr}.my-lessons-nav{font-size:.73rem}.topbar:has(.my-lessons-nav){flex-wrap:wrap;gap:10px}.topbar:has(.my-lessons-nav) .tag{font-size:.65rem}.lesson-actions button,.lesson-open{font-size:.75rem!important}.saved-lessons>.muted{font-size:.85rem}}
 }
+
+/* Keep the shared practice/final board and its cards together on every screen. */
+.board-layout{display:block;width:100%;max-width:640px;margin-inline:auto}
+.board-area>.board-inventory{margin:12px 0 0;padding:12px;max-height:none;overflow:visible;box-shadow:none}
+.board-inventory .section-title{margin-bottom:8px;gap:8px}
+.board-inventory .section-title h2{font-size:1rem}
+.board-inventory .inventory{grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin:8px 0 0;padding:4px;max-height:190px;overflow-y:auto;overscroll-behavior:contain}
+.board-inventory .selection-info{margin:6px 0;padding:6px 8px;min-height:40px}
+.board-help{margin-top:8px;font-size:.8rem;color:#d6bfb7}
+.board-help summary{cursor:pointer}
+.board-help .note{margin-top:8px}
+@media(max-width:700px){.board-inventory .inventory{grid-template-columns:repeat(5,minmax(0,1fr));max-height:155px}.board-area>.board-inventory{padding:8px}.board-inventory .inventory .card-face b{font-size:1.25rem}}
