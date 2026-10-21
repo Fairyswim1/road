@@ -1,12 +1,12 @@
 // Server-only catalog. Content keys never leave authenticated server routes.
 import entries from './problem-bank-data.json';
-export type BankSummary={id:string;subject:string;unit:string;title:string;difficulty:string;minutes:number;familyId?:string;variant?:number;origin?:string};
+export type BankSummary={id:string;subject:string;unit:string;title:string;difficulty:string;minutes:number;familyId?:string;variant?:number;origin?:string;edition?:string;sourceCode?:string};
 export type BankIndex=BankSummary&{asset:string;key:string;imageHash?:string};
 export type BankProblem=BankSummary&{answer:string;answerLatex:string;solution:string;solutionHtml:string;source:{book:string;code:string;page:string;adaptation:string};width:number;height:number;image:string;blocks:({type:'text';text:string}|{type:'math';latex:string})[]};
 export const problemBank=entries as unknown as BankIndex[];
 const byId=new Map(problemBank.map(p=>[p.id,p]));
 export const findProblem=(id:string)=>byId.get(id);
-export function problemSummary(p:BankSummary):BankSummary{return {id:p.id,subject:p.subject,unit:p.unit,title:p.title,difficulty:p.difficulty,minutes:p.minutes,familyId:p.familyId,variant:p.variant,origin:p.origin};}
+export function problemSummary(p:BankSummary):BankSummary{return {id:p.id,subject:p.subject,unit:p.unit,title:p.title,difficulty:p.difficulty,minutes:p.minutes,familyId:p.familyId,variant:p.variant,origin:p.origin,edition:p.edition,sourceCode:p.sourceCode};}
 const cache=new Map<string,Promise<BankProblem>>();
 // Public assets contain only compressed ciphertext. Decryption runs after teacher authorization.
 export async function loadProblem(p:BankIndex,origin:string):Promise<BankProblem>{
