@@ -9,7 +9,7 @@ const bank='/api/problem-bank?id='+id;
 assert.equal((await fetch(base+bank)).status,403);
 assert.equal((await fetch(base+bank,auth(team.token))).status,403);
 for(const query of ['&entry=mi-01','&image=mi-01'])assert.equal((await fetch(base+bank+query,auth(team.token))).status,403);
-const list=await fetch(base+bank,auth(adminToken)).then(r=>r.json());assert.equal(list.count,100);assert.ok(list.problems.every(p=>!('answer'in p)&&!('solution'in p)));
+const list=await fetch(base+bank,auth(adminToken)).then(r=>r.json());assert.equal(list.count,1000);assert.ok(list.problems.every(p=>!('answer'in p)&&!('solution'in p)&&!('key'in p)&&!('asset'in p)));
 const detail=await fetch(base+bank+'&entry=mi-01',auth(adminToken)).then(r=>r.json());assert.equal(detail.answer,'sqrt(6)');assert.ok(detail.solutionHtml);
 const imageResponse=await fetch(base+bank+'&image=mi-01',auth(adminToken));assert.equal(imageResponse.status,200);assert.equal(imageResponse.headers.get('content-type'),'image/png');assert.match(imageResponse.headers.get('cache-control'),/private.*no-store/);
 const png=await imageResponse.blob();assert.ok(png.size>1000);
@@ -27,7 +27,7 @@ assert.equal((await fetch(base+discovered.question.image,auth(team.token))).stat
 const wrong=await ar('answer',{targetId:target.id,answer:'2'},team.token);assert.equal(wrong.correct,false);
 await new Promise(r=>setTimeout(r,1300));
 const correct=await ar('answer',{targetId:target.id,answer:'2√(6)/2'},team.token);assert.equal(correct.correct,true);assert.ok(correct.card);
-console.log('PASS: teacher-only 100-question bank; protected PNG/answers; bank image upload→discovery→equivalent radical answer→card reveal');
+console.log('PASS: teacher-only 1,000-question bank; protected PNG/answers; bank image upload→discovery→equivalent radical answer→card reveal');
 // A second clean setup class for browser QA, with no fake tracking files.
 const fixture=await post('/api/game',{action:'create',mode:'ar',title:'문제은행 화면 확인',names:['1모둠','2모둠','3모둠','4모둠','5모둠'],pin:'246810',cardCount:100,searchMinutes:60,solveMinutes:10,allNumbers:false});
 fs.writeFileSync('.sites-runtime/problem-bank-ui.json',JSON.stringify({id:fixture.id,adminToken:fixture.adminToken}));

@@ -1,5 +1,5 @@
 import { database } from '@/db/raw';
-import { problemBank,findProblem,problemSummary } from '@/lib/problem-bank';
+import { problemBank,findProblem,problemSummary,loadProblem } from '@/lib/problem-bank';
 export const dynamic='force-dynamic';
 const headers={'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'};
 const json=(data:unknown,status=200)=>Response.json(data,{status,headers});
@@ -13,10 +13,10 @@ export async function GET(req:Request){
   if(!row||row.admin_hash!==hash)return json({error:'문제은행은 교사만 열 수 있어요.'},403);
   const key=url.searchParams.get('image')||url.searchParams.get('entry');
   if(!key)return json({count:problemBank.length,problems:problemBank.map(problemSummary)});
-  const problem=findProblem(key);if(!problem)return json({error:'문제를 찾을 수 없어요.'},404);
+  const entry=findProblem(key);if(!entry)return json({error:'문제를 찾을 수 없어요.'},404);
+  const problem=await loadProblem(entry,url.origin);
   if(url.searchParams.has('image')){
-   const images=(await import('@/lib/problem-bank-images.json')).default as Record<string,string>;
-   const data=images[key];if(!data)return json({error:'문제 이미지를 찾을 수 없어요.'},404);
+   const data=problem.image;if(!data)return json({error:'문제 이미지를 찾을 수 없어요.'},404);
    const bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));
    return new Response(bytes,{headers:{...headers,'Content-Type':'image/png','Content-Disposition':`inline; filename="formula-road-${key}.png"`}});
   }
