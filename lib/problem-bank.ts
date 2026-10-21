@@ -1,7 +1,7 @@
 // Server-only catalog. Content keys never leave authenticated server routes.
 import entries from './problem-bank-data.json';
 export type BankSummary={id:string;subject:string;unit:string;title:string;difficulty:string;minutes:number;familyId?:string;variant?:number;origin?:string};
-export type BankIndex=BankSummary&{asset:string;key:string};
+export type BankIndex=BankSummary&{asset:string;key:string;imageHash?:string};
 export type BankProblem=BankSummary&{answer:string;answerLatex:string;solution:string;solutionHtml:string;source:{book:string;code:string;page:string;adaptation:string};width:number;height:number;image:string;blocks:({type:'text';text:string}|{type:'math';latex:string})[]};
 export const problemBank=entries as unknown as BankIndex[];
 const byId=new Map(problemBank.map(p=>[p.id,p]));

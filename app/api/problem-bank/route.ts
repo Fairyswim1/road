@@ -1,5 +1,7 @@
 import { database } from '@/db/raw';
 import { problemBank,findProblem,problemSummary,loadProblem } from '@/lib/problem-bank';
+import { usedProblems } from '@/lib/problem-bank-usage';
+import type { Game } from '@/lib/game';
 export const dynamic='force-dynamic';
 const headers={'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'};
 const json=(data:unknown,status=200)=>Response.json(data,{status,headers});
@@ -8,11 +10,11 @@ export async function GET(req:Request){
   const url=new URL(req.url),id=url.searchParams.get('id')||'';
   const token=req.headers.get('authorization')?.replace(/^Bearer /,'')||'';
   if(!/^[a-f0-9]{32}$/.test(id)||!token)return json({error:'교사 수업 링크에서 문제은행을 열어주세요.'},403);
-  const row=await database().prepare('SELECT admin_hash FROM games WHERE id=?').bind(id).first<{admin_hash:string}>();
+  const row=await database().prepare('SELECT admin_hash,state FROM games WHERE id=?').bind(id).first<{admin_hash:string;state:string}>();
   const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token)))).map(n=>n.toString(16).padStart(2,'0')).join('');
   if(!row||row.admin_hash!==hash)return json({error:'문제은행은 교사만 열 수 있어요.'},403);
   const key=url.searchParams.get('image')||url.searchParams.get('entry');
-  if(!key)return json({count:problemBank.length,problems:problemBank.map(problemSummary)});
+  if(!key){const game=JSON.parse(row.state) as Game,used=await usedProblems(game.ar?.targets||[],url.searchParams.get('excludeTarget')||'');return json({count:problemBank.length,problems:problemBank.map(p=>({...problemSummary(p),inUse:used.has(p.id)}))});}
   const entry=findProblem(key);if(!entry)return json({error:'문제를 찾을 수 없어요.'},404);
   const problem=await loadProblem(entry,url.origin);
   if(url.searchParams.has('image')){

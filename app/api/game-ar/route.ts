@@ -2,6 +2,8 @@ import { env } from "cloudflare:workers";
 import { database } from "@/db/raw";
 import { hasClaimedAtTarget, type Game, type ArSetup } from "@/lib/game";
 import { answersEquivalent } from "@/lib/math-answer";
+import { findProblem } from '@/lib/problem-bank';
+import { imageHash,bankIdForImage,targetProblem,duplicateProblem } from '@/lib/problem-bank-usage';
 export const dynamic="force-dynamic";
 type Row={id:string;admin_hash:string;state:string;revision:number};
 class ApiError extends Error{constructor(message:string,public status=400){super(message);}}
@@ -14,6 +16,15 @@ const normalize=(s:string)=>s.normalize("NFKC").replace(/\s/g,"").replace(/[−�
 function problem(question:unknown,answers:unknown,hasImage=false){
  if(typeof question!=="string"||(!question.trim()&&!hasImage)||question.length>2000||!Array.isArray(answers)||!answers.length||answers.length>10||answers.some(x=>typeof x!=="string"||!normalize(x)||x.length>100))fail("글 또는 문제 그림과 정답(한 줄에 하나, 최대 10개)을 입력해주세요.");
  return {question:question.trim(),answers:answers.map((s:string)=>s.trim())};
+}
+async function problemIdentity(targets:ArSetup['targets'],requested:unknown,prepared:{bytes:ArrayBuffer}|null,existing?:ArSetup['targets'][number],removeImage=false){
+ const identity=prepared?{problemImageHash:await imageHash(prepared.bytes),bankProblemId:undefined as string|undefined}:existing&&!removeImage?await targetProblem(existing):{};
+ if(prepared)identity.bankProblemId=bankIdForImage(identity.problemImageHash!);
+ if(requested!==undefined&&requested!==null&&requested!==''){
+  if(typeof requested!=='string'||!findProblem(requested)||identity.bankProblemId!==requested)fail('문제은행에서 문제를 다시 가져와주세요.');
+ }
+ if(await duplicateProblem(targets,identity,existing?.id))fail('이 수업에서 이미 사용 중인 문제입니다. 다른 문제를 선택해주세요.',409);
+ return identity;
 }
 async function discovered(a:Awaited<ReturnType<typeof auth>>,targetId:string){
  const target=a.ar.targets.find(t=>t.id===targetId),card=target?a.g.cards.find(c=>target.cards.includes(c.id)&&!c.owner):undefined;
@@ -93,13 +104,14 @@ export async function POST(req:Request){try{
  }
  if(action==="problem"){
   let b:any,file:FormDataEntryValue|null=null;
-  if(req.headers.get("content-type")?.startsWith("multipart/form-data")){const f=await multipart(req,5_000_000);b={targetId:f.get("targetId"),question:f.get("question")||"",answers:JSON.parse(String(f.get("answers")||"[]")),removeImage:f.get("removeImage")==="true"};file=f.get("problemImage");}
+  if(req.headers.get("content-type")?.startsWith("multipart/form-data")){const f=await multipart(req,5_000_000);b={targetId:f.get("targetId"),question:f.get("question")||"",answers:JSON.parse(String(f.get("answers")||"[]")),removeImage:f.get("removeImage")==="true",bankProblemId:f.get('bankProblemId')};file=f.get("problemImage");}
   else{const raw=await req.text();if(raw.length>20000)fail("문제가 너무 깁니다.");b=JSON.parse(raw);}
   const target=a.ar.targets.find(t=>t.id===b.targetId);if(!target)fail("등록한 물건이 아니에요.");
   const prepared=await picture(file),imageKey=prepared?`game-ar/${a.g.id}/problem-${secret()}`:b.removeImage?undefined:target.problemImage;
   const task=problem(b.question,b.answers,!!imageKey);
+  const identity=await problemIdentity(a.ar.targets,b.bankProblemId,prepared,target,!!b.removeImage);
   if(prepared)await env.BUCKET.put(imageKey!,prepared.bytes,{httpMetadata:{contentType:prepared.type}});
-  Object.assign(target,task,{problemImage:imageKey});
+  Object.assign(target,task,{problemImage:imageKey,bankProblemId:identity.bankProblemId,problemImageHash:identity.problemImageHash});
   try{await save(a,{...a.ar,version:a.ar.version+1});}catch(e){if(prepared)await env.BUCKET.delete(imageKey!);throw e;}return json({ok:true});
  }
  if(action!=="upload"&&action!=="publish")fail("잘못된 요청입니다.");
@@ -115,13 +127,14 @@ export async function POST(req:Request){try{
   const photo=form.get("photo"),label=form.get("label"),ids=JSON.parse(String(form.get("cards")||"[]"));
   const prepared=await picture(form.get("problemImage"));
   const task=problem(form.get("question")||"",JSON.parse(String(form.get("answers")||"[]")),!!prepared);
+  const identity=await problemIdentity(a.ar.targets,form.get('bankProblemId'),prepared);
   if(!(photo instanceof File)||photo.size>1_000_000||photo.size<100||typeof label!=="string"||!label.trim()||label.length>60)fail("물건 이름과 사진을 확인해주세요.");
   if(!Array.isArray(ids)||!ids.length||ids.length>30||new Set(ids).size!==ids.length||ids.some(id=>typeof id!=="string"||!a.g.cards.some(c=>c.id===id)||a.ar.targets.some(t=>t.cards.includes(id))))fail("아직 배치하지 않은 카드를 1~30장 선택해주세요.");
   const photoBytes=await photo.arrayBuffer(),photoHash=await hash(photoBytes);
   if(a.ar.targets.some(t=>t.photoHash===photoHash))fail("이미 등록한 사진입니다. 서로 다른 물건을 사용해주세요.");
   await env.BUCKET.put(`${key}/photo`,photoBytes,{httpMetadata:{contentType:"image/jpeg"}});await env.BUCKET.put(`${key}/target`,await target.arrayBuffer());
   if(prepared)await env.BUCKET.put(`${key}/problem`,prepared.bytes,{httpMetadata:{contentType:prepared.type}});
-  try{await save(a,{version:a.ar.version+1,ready:false,bundle:null,targets:[...a.ar.targets,{id:secret(),label:label.trim(),cards:ids,key,photoHash,...task,problemImage:prepared?`${key}/problem`:undefined,solvedBy:[]}]});}catch(e){await env.BUCKET.delete([`${key}/photo`,`${key}/target`,`${key}/problem`]);throw e;}
+  try{await save(a,{version:a.ar.version+1,ready:false,bundle:null,targets:[...a.ar.targets,{id:secret(),label:label.trim(),cards:ids,key,photoHash,...task,...identity,problemImage:prepared?`${key}/problem`:undefined,solvedBy:[]}]});}catch(e){await env.BUCKET.delete([`${key}/photo`,`${key}/target`,`${key}/problem`]);throw e;}
  }
  return json({ok:true});
  }catch(e){return error(e);}}
