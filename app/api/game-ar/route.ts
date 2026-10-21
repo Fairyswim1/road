@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { database } from "@/db/raw";
 import { hasClaimedAtTarget, type Game, type ArSetup } from "@/lib/game";
+import { answersEquivalent } from "@/lib/math-answer";
 export const dynamic="force-dynamic";
 type Row={id:string;admin_hash:string;state:string;revision:number};
 class ApiError extends Error{constructor(message:string,public status=400){super(message);}}
@@ -75,7 +76,7 @@ export async function POST(req:Request){try{
    if(target&&hasClaimedAtTarget(current.g,target,current.team.id))return json(await discovered(current,target.id));
    if(!target||!current.g.cards.some(c=>target.cards.includes(c.id)&&!c.owner))return json({card:null,code:null});
    if(target.solvedBy?.includes(current.team.id))return json(await discovered(current,target.id));
-   if(!target.answers.some(x=>normalize(x)===normalize(b.answer)))return json({correct:false,message:"다시 생각해보세요. 정답을 입력하면 카드가 나타납니다."});
+   if(!target.answers.some(x=>answersEquivalent(b.answer,x)))return json({correct:false,message:"다시 생각해보세요. 분수는 /, 루트는 √( )로 입력할 수 있어요."});
    target.solvedBy=[...(target.solvedBy||[]),current.team.id];
    current.g.events.unshift({at:Date.now(),text:`${current.team.name} · ${target.label} 문제 해결`});current.g.events=current.g.events.slice(0,100);
    try{await save(current,current.ar);return json({correct:true,...await discovered(current,target.id)});}catch(e){if(!(e instanceof ApiError)||e.status!==409)throw e;}

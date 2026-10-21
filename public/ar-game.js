@@ -1,4 +1,6 @@
 import {photoFile,compilePhoto,combineTargets,startVision} from './ar-vision.js';
+import {createProblemBank} from './problem-bank.js';
+import {attachMathKeypad} from './math-keypad.js';
 const $=id=>document.getElementById(id),p=new URLSearchParams(location.hash.slice(1));
 const session={id:p.get('g'),token:p.get('a')||p.get('t')};
 const api='/api/game-ar?id='+encodeURIComponent(session.id||'');
@@ -7,6 +9,9 @@ const shapes={NS:'세로',EW:'가로',NE:'위·오른쪽',ES:'오른쪽·아래'
 let view,blob,previewURL,busy=false,vision,abort,scanStarting=false,found=-1,detected=null,findTimer,refreshTimer,discoverBusy=false,versionSeen=-1,urls=[],activeTarget=null;
 let problemBlob=null,problemPreviewURL=null,questionImagePath=null,questionImageURL=null,imageEpoch=0,imageZoom=1;
 const message=t=>{$('message').textContent=t;$('message').hidden=!t;};
+const bank=createProblemBank({session,onError:message});
+const mathKeypad=attachMathKeypad($('answer-input'),$('math-answer-controls'));
+$('bank-open').onclick=()=>{if(busy||view?.role!=='admin'||view.game.phase!=='setup')return;void bank.open(async entry=>{if(view.game.phase!=='setup')throw Error('수색 시작 전만 문제를 바꿀 수 있어요.');clearProblemUpload();problemBlob=entry.blob;problemPreviewURL=URL.createObjectURL(entry.blob);$('problem-preview').src=problemPreviewURL;$('problem-preview').hidden=false;$('problem-remove').hidden=false;$('question').value='';$('answers').value=entry.answer;$('bank-selection').textContent=`선택: ${entry.subject} · ${entry.title} · ${entry.difficulty}`;$('bank-selection').hidden=false;message('문제 이미지와 정답을 가져왔습니다. 물건 사진과 보상 카드를 정한 뒤 숨기기를 눌러주세요.');});};
 async function response(r){const text=await r.text();let d;try{d=JSON.parse(text);}catch{throw Object.assign(new Error(r.status===413?'인식 데이터가 너무 큽니다. 물건 수를 줄여주세요.':'서버에 연결하지 못했습니다. 잠시 후 다시 시도하세요.'),{status:r.status});}if(!r.ok)throw Object.assign(new Error(d.error||'요청을 처리하지 못했습니다.'),{status:r.status});return d;}
 async function arCall(action,body){return response(await fetch(api+'&action='+action,{method:'POST',headers:body instanceof FormData?headers():{...headers(),'Content-Type':'application/json'},body:body instanceof FormData?body:JSON.stringify(body)}));}
 async function gameCall(action,extra={}){return response(await fetch('/api/game',{method:'POST',headers:{...headers(),'Content-Type':'application/json'},body:JSON.stringify({action,id:session.id,...extra})}));}
@@ -15,7 +20,7 @@ function backLink(){return '/#g='+session.id+'&'+(view.role==='admin'?'a':'t')+'
 function canSearch(){return view?.role==='team'&&view.game.phase==='search'&&view.game.teams[0].status==='searching'&&view.game.searchEndsAt>view.serverNow;}
 function cardNode(card){const d=document.createElement('div');d.className='own-card';const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 100 100');const ports={N:[50,0],S:[50,100],E:[100,50],W:[0,50]};for(const side of card.shape){const l=document.createElementNS(svg.namespaceURI,'line');Object.entries({x1:50,y1:50,x2:ports[side][0],y2:ports[side][1],stroke:'currentColor','stroke-width':4}).forEach(([k,v])=>l.setAttribute(k,String(v)));svg.append(l);}const b=document.createElement('b');b.textContent=card.value;d.append(svg,b);return d;}
 function option(value,text){const o=document.createElement('option');o.value=value;o.textContent=text;return o;}
-function updateButtons(){const ready=detected?.card&&!busy;$('claim').hidden=!!detected?.question;$('question-form').hidden=!detected?.question;$('answer-submit').disabled=busy;$('claim').disabled=!ready;$('claim').textContent=ready?'발견한 카드 획득하기':'카드를 찾아보세요';}
+function updateButtons(){const ready=detected?.card&&!busy;$('claim').hidden=!!detected?.question;$('question-form').hidden=!detected?.question;$('answer-submit').disabled=busy;$('answer-input').disabled=busy;mathKeypad.setDisabled(busy);$('claim').disabled=!ready;$('claim').textContent=ready?'발견한 카드 획득하기':'카드를 찾아보세요';}
 function render(){
  const admin=view.role==='admin',g=view.game;$('teacher').hidden=!admin;$('student').hidden=admin;$('heading').textContent=admin?'물건에 카드를 숨기세요.':g.teams[0].name+'의 탐색';$('role').textContent=admin?'TEACHER · AR SETUP':'OUR TEAM';$('subtitle').textContent=g.title;
  for(const id of ['back','admin-back','student-back'])$(id).href=backLink();
@@ -23,7 +28,7 @@ function render(){
   const ar=g.ar,locked=g.phase!=='setup';
   $('placement-summary').textContent=`${ar.targets.length}개 물건 · ${ar.targets.reduce((n,t)=>n+t.cards.length,0)}장 배치 / 준비 ${g.cards.length}장 · ${ar.ready?'탐색 데이터 저장 완료':'배치 완료 후 저장 필요'}`;
   $('publish').disabled=busy||locked||!ar.targets.length||ar.ready;$('place').disabled=busy||locked||!blob;
-  for(const id of ['label','photo','cards','auto-count','auto','edit','edit-card','edit-value','edit-shape','question','answers','problem-image','problem-remove'])$(id).disabled=busy||locked;
+  for(const id of ['label','photo','cards','auto-count','auto','edit','edit-card','edit-value','edit-shape','question','answers','problem-image','problem-remove','bank-open'])$(id).disabled=busy||locked;
   if(versionSeen!==ar.version){versionSeen=ar.version;renderTargets();}
  }else{
   $('phase').textContent=canSearch()?'수색 중 · 남은 시간 '+Math.max(0,Math.ceil((g.searchEndsAt-view.serverNow)/60000))+'분':g.phase==='setup'?'선생님의 시작 신호를 기다려주세요.':'수색 종료 · 관리자 패드에서 수식로드를 완성하세요.';
@@ -47,14 +52,15 @@ function problemEditor(t,version){
  summary.textContent='수학문제 · 정답 확인/수정';q.value=t.question||'';q.maxLength=2000;q.rows=4;ans.value=(t.answers||[]).join('\n');ans.required=true;ans.rows=2;save.textContent='문제 저장';save.disabled=view.game.phase!=='setup';file.type='file';file.accept='image/jpeg,image/png,image/webp';preview.className='problem-preview';preview.alt='등록된 문제 그림';preview.hidden=true;remove.type='checkbox';
  function label(text,control){const l=document.createElement('label');l.textContent=text;l.append(control);return l;}
  const removeLabel=label('기존 문제 그림 삭제',remove);removeLabel.hidden=!t.problemImage;
- form.append(label('학생에게 보여줄 문제 (그림만 올려도 됩니다)',q),label('문제 그림 추가/교체',file),preview,removeLabel,label('정답 (한 줄에 하나)',ans),save);
+ const bankButton=document.createElement('button');bankButton.type='button';bankButton.className='secondary';bankButton.textContent='문제은행에서 교체하기';bankButton.disabled=view.game.phase!=='setup';bankButton.onclick=()=>{if(busy||view.game.phase!=='setup')return;void bank.open(async entry=>{if(view.game.phase!=='setup')throw Error('수색 시작 전만 문제를 바꿀 수 있어요.');replacement=entry.blob;if(localURL)URL.revokeObjectURL(localURL);localURL=URL.createObjectURL(replacement);urls.push(localURL);preview.src=localURL;preview.hidden=false;remove.checked=false;q.value='';ans.value=entry.answer;message('새 문제를 가져왔습니다. 문제 저장을 눌러 적용하세요.');});};
+ form.append(bankButton,label('학생에게 보여줄 문제 (그림만 올려도 됩니다)',q),label('문제 그림 추가/교체',file),preview,removeLabel,label('정답 (한 줄에 하나)',ans),save);
  if(t.problemImage)fetch(api+'&asset=problem&target='+t.id,{headers:headers()}).then(async r=>{if(!r.ok)return;const b=await r.blob();if(versionSeen!==version||replacement||remove.checked)return;const u=URL.createObjectURL(b);urls.push(u);preview.src=u;preview.hidden=false;}).catch(()=>{});
  file.onchange=async()=>{if(!file.files[0])return;busy=true;render();save.disabled=true;try{replacement=await problemImageFile(file.files[0]);if(localURL)URL.revokeObjectURL(localURL);localURL=URL.createObjectURL(replacement);urls.push(localURL);preview.src=localURL;preview.hidden=false;remove.checked=false;}catch(e){file.value='';message(e.message);}finally{busy=false;render();save.disabled=view.game.phase!=='setup';}};
  remove.onchange=()=>{if(remove.checked){replacement=null;file.value='';preview.hidden=true;}else if(preview.src)preview.hidden=false;};
  form.onsubmit=async e=>{e.preventDefault();if(busy)return;busy=true;save.disabled=true;try{const f=new FormData();f.append('targetId',t.id);f.append('question',q.value);f.append('answers',JSON.stringify(answerLines(ans.value)));f.append('removeImage',String(remove.checked));if(replacement)f.append('problemImage',replacement,'problem.jpg');await arCall('problem',f);await refresh();message('문제와 정답을 저장했습니다.');}catch(e){message(e.message);}finally{busy=false;render();save.disabled=view.game.phase!=='setup';}};
  details.append(summary,form);return details;
 }
-function clearProblemUpload(){problemBlob=null;$('problem-image').value='';$('problem-preview').hidden=true;$('problem-remove').hidden=true;if(problemPreviewURL)URL.revokeObjectURL(problemPreviewURL);problemPreviewURL=null;}
+function clearProblemUpload(){$('bank-selection').hidden=true;problemBlob=null;$('problem-image').value='';$('problem-preview').hidden=true;$('problem-remove').hidden=true;if(problemPreviewURL)URL.revokeObjectURL(problemPreviewURL);problemPreviewURL=null;}
 $('problem-remove').onclick=clearProblemUpload;
 $('problem-image').onchange=async()=>{if(!$('problem-image').files[0])return;busy=true;render();try{problemBlob=await problemImageFile($('problem-image').files[0]);if(problemPreviewURL)URL.revokeObjectURL(problemPreviewURL);problemPreviewURL=URL.createObjectURL(problemBlob);$('problem-preview').src=problemPreviewURL;$('problem-preview').hidden=false;$('problem-remove').hidden=false;}catch(e){clearProblemUpload();message(e.message);}finally{busy=false;render();}};
 function clearQuestionImage(){imageEpoch++;questionImagePath=null;if(questionImageURL)URL.revokeObjectURL(questionImageURL);questionImageURL=null;$('question-image-open').hidden=true;$('question-image').removeAttribute('src');$('image-large').removeAttribute('src');$('question-image-status').textContent='';$('image-dialog').close();}
@@ -80,7 +86,7 @@ let scanTargets=[],scanEpoch=0;
 function close(){clearQuestionImage();scanEpoch++;clearTimeout(findTimer);abort?.abort();abort=null;vision?.stop();vision=null;scanStarting=false;found=-1;detected=null;activeTarget=null;discoverBusy=false;$('question-form').hidden=true;$('reward').hidden=true;$('camera').hidden=true;document.body.classList.remove('scanning');updateButtons();}
 function present(d,index){
  const previous=detected;detected=d;if(!d.question)clearQuestionImage();
- if(d.question){activeTarget=d.question.targetId;vision?.clear();$('reward').hidden=true;$('question-text').textContent=d.question.prompt;void questionImage(d.question.image||null);if(previous?.question?.targetId!==d.question.targetId){$('answer-input').value='';$('answer-feedback').textContent='';}$('camera-state').textContent='수학문제 발견';$('camera-help').textContent='정답을 맞히면 숨겨진 카드가 나타납니다.';}
+ if(d.question){activeTarget=d.question.targetId;vision?.clear();$('reward').hidden=true;$('question-text').textContent=d.question.prompt;void questionImage(d.question.image||null);if(previous?.question?.targetId!==d.question.targetId){$('answer-input').value='';mathKeypad.reset();$('answer-feedback').textContent='';}$('camera-state').textContent='수학문제 발견';$('camera-help').textContent='정답을 맞히면 숨겨진 카드가 나타납니다.';}
  else if(d.card){activeTarget=scanTargets[index]?.id||activeTarget;if(found===index)vision?.show(index,d.card);$('reward').replaceChildren(cardNode(d.card));$('reward').hidden=false;$('camera-state').textContent='정답 확인 · 카드 발견';$('camera-help').textContent='카드를 획득해 우리 모둠 보관함에 넣으세요.';}
  else{activeTarget=null;vision?.clear();$('reward').hidden=true;$('camera-state').textContent=d.claimed?'이 장소 획득 완료':'탐색 중';$('camera-help').textContent=d.claimed?'우리 모둠은 이 장소에서 이미 1장을 획득했어요. 다른 장소를 찾아보세요.':'주변 물건을 천천히 비춰주세요.';}
  updateButtons();
