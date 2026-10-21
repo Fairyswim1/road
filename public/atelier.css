@@ -35,3 +35,5 @@ body{line-height:1.75}input,textarea,select{line-height:1.6}h1,h2,h3{word-break:
 .board-help summary{cursor:pointer}
 .board-help .note{margin-top:8px}
 @media(max-width:700px){.board-inventory .inventory{grid-template-columns:repeat(5,minmax(0,1fr));max-height:155px}.board-area>.board-inventory{padding:8px}.board-inventory .inventory .card-face b{font-size:1.25rem}}
+
+button.lesson-delete{border:1px solid #cf737f!important;background:#4a222c!important;color:#ffe2e5!important}button.lesson-delete:hover:not(:disabled){background:#692c3a!important;border-color:#f2a5ae!important}
