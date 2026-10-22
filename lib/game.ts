@@ -4,13 +4,14 @@ export type Result = {valid:boolean; message:string; expression?:string; value?:
 export type Team = {id:string; name:string; token?:string; status:"searching"|"ready"|"solving"|"submitted"; board:(string|null)[]; boardVersion:number; practiceBoard?:(string|null)[]; practiceVersion?:number; usedMs:number; startedAt:number|null; result:Result|null};
 export type ArTarget = {id:string;label:string;cards:string[];key:string;photoHash:string;question:string;problemImage?:string;bankProblemId?:string;problemImageHash?:string;answers:string[];solvedBy:string[]};
 export type ArSetup = {version:number;ready:boolean;bundle:string|null;targets:ArTarget[]};
-export type Game = {id:string; title:string; phase:"setup"|"search"|"solve"|"ended"; searchMinutes:number; solveMinutes:number; searchEndsAt:number|null; allNumbers:boolean; teams:Team[]; cards:Card[]; events:{at:number; text:string}[]; mode?:"ar";ar?:ArSetup};
+export type Game = {id:string; title:string; phase:"setup"|"search"|"solve"|"ended"; searchMinutes:number; solveMinutes:number; searchEndsAt:number|null; searchPausedMs?:number|null; searchTimerVersion?:number; allNumbers:boolean; teams:Team[]; cards:Card[]; events:{at:number; text:string}[]; mode?:"ar";ar?:ArSetup};
 export type View = {game:Game; role:"admin"|"team"; teamId:string|null; serverNow:number; revision:number};
 // Derive from ownership so existing lessons also enforce one reward per team/location.
 export function hasClaimedAtTarget(game:Game,target:ArTarget,teamId:string){return game.cards.some(c=>c.owner===teamId&&target.cards.includes(c.id));}
 export const shapes:Shape[]=["NS","EW","NE","ES","SW","NW"];
 export const shapeNames:Record<Shape,string>={NS:"세로",EW:"가로",NE:"위·오른쪽",ES:"오른쪽·아래",SW:"아래·왼쪽",NW:"위·왼쪽"};
 export function solvingRemaining(game:Game,t:Team,now:number){return Math.max(0,game.solveMinutes*60000-t.usedMs-(t.startedAt?now-t.startedAt:0));}
+export function searchRemaining(game:Game,now:number){return Math.max(0,game.searchPausedMs??((game.searchEndsAt??now)-now));}
 
 // Exact rational arithmetic: never eval student expressions or compare floating point values to 100.
 type F={n:bigint;d:bigint};

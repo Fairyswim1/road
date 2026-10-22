@@ -11,7 +11,7 @@ function num(v:unknown,min:number,max:number){if(typeof v!=="number"||!Number.is
 function title(v:unknown){if(typeof v!=="string"||!v.trim()||v.length>60)fail("이름은 1~60자로 입력해주세요.");return (v as string).trim();}
 function log(g:Game,text:string){g.events.unshift({at:Date.now(),text});g.events=g.events.slice(0,100);}
 function pause(t:Team,now:number){if(t.startedAt){t.usedMs+=Math.max(0,now-t.startedAt);t.startedAt=null;}}
-function finishSearch(g:Game,now:number){g.phase="solve";g.searchEndsAt=Math.min(now,g.searchEndsAt||now);g.teams.forEach(t=>{if(t.status==="searching")t.status="ready";});}
+function finishSearch(g:Game,now:number){g.phase="solve";g.searchPausedMs=null;g.searchEndsAt=Math.min(now,g.searchEndsAt||now);g.teams.forEach(t=>{if(t.status==="searching")t.status="ready";});}
 function project(row:Row,g:Game,token:string,admin:boolean){
  const team=g.teams.find(t=>t.token===token);
  if(!admin&&!team)fail("참여 링크가 올바르지 않아요. 관리자에게 모둠 링크를 받아주세요.",403);
@@ -85,6 +85,7 @@ export async function POST(req:Request){try{
    t.practiceBoard=b.board;t.practiceVersion=(t.practiceVersion||0)+1;message="연습판을 저장했어요.";
   }else if(b.action==="claim"){
    if(!actor)fail("모둠 참여 화면에서 획득해주세요.",403);
+   if(g.searchPausedMs!=null)fail("수색이 일시 정지됐어요. 선생님이 재개할 때까지 기다려주세요.",409);
    if(g.phase!=="search"||actor.status!=="searching")fail("현재는 카드를 수색할 수 없어요.",409);
    const c=g.cards.find(c=>c.secret===String(b.code||"").trim().toUpperCase());if(!c)fail("이 수업의 카드 코드가 아니에요.",404);
    if(g.mode==="ar"){
@@ -109,6 +110,21 @@ export async function POST(req:Request){try{
     if(g.mode==="ar"&&(!g.ar?.ready||!g.ar.targets.length||!g.ar.bundle))fail("AR 카드 배치를 완료하고 탐색 데이터를 저장해주세요.",409);
     if(g.mode==="ar"&&g.ar?.targets.some(t=>(!t.question&&!t.problemImage)||!t.answers?.length))fail("모든 물건에 수학문제와 정답을 등록해주세요.",409);
     if(g.phase!=="setup")fail("이미 시작된 수업이에요.",409);g.phase="search";g.searchEndsAt=now+g.searchMinutes*60000;log(g,"카드 수색이 시작됐어요.");
+   }else if(["search_pause","search_resume","search_add"].includes(b.action)){
+    if(g.phase!=="search")fail("진행 중인 수색에서만 시간을 조절할 수 있어요.",409);
+    if(b.searchTimerVersion!==(g.searchTimerVersion||0))fail("다른 화면에서 수색 시간이 변경됐어요. 최신 상태에서 다시 눌러주세요.",409);
+    if(b.action==="search_pause"){
+     if(g.searchPausedMs!=null)fail("이미 일시 정지 중이에요.",409);
+     g.searchPausedMs=Math.max(0,(g.searchEndsAt||now)-now);g.searchEndsAt=null;log(g,"수색을 일시 정지했어요.");
+    }else if(b.action==="search_resume"){
+     if(g.searchPausedMs==null)fail("일시 정지 중일 때만 재개할 수 있어요.",409);
+     g.searchEndsAt=now+g.searchPausedMs;g.searchPausedMs=null;log(g,"남은 시간부터 수색을 재개했어요.");
+    }else{
+     const minutes=num(b.minutes,1,120),extra=minutes*60000;
+     if(g.searchPausedMs!=null)g.searchPausedMs+=extra;else g.searchEndsAt=(g.searchEndsAt||now)+extra;
+     log(g,`수색 시간을 ${minutes}분 추가했어요.`);
+    }
+    g.searchTimerVersion=(g.searchTimerVersion||0)+1;
    }else if(b.action==="stop"){
     if(g.phase!=="search")fail("수색 중일 때만 종료할 수 있어요.",409);finishSearch(g,now);log(g,"전체 카드 수색이 종료됐어요.");
    }else if(b.action==="card_edit"){

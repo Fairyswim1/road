@@ -17,10 +17,10 @@ async function arCall(action,body){return response(await fetch(api+'&action='+ac
 async function gameCall(action,extra={}){return response(await fetch('/api/game',{method:'POST',headers:{...headers(),'Content-Type':'application/json'},body:JSON.stringify({action,id:session.id,...extra})}));}
 async function refresh(){view=await response(await fetch('/api/game?id='+session.id,{headers:headers(),cache:'no-store'}));render();}
 function backLink(){return '/#g='+session.id+'&'+(view.role==='admin'?'a':'t')+'='+session.token;}
-function canSearch(){return view?.role==='team'&&view.game.phase==='search'&&view.game.teams[0].status==='searching'&&view.game.searchEndsAt>view.serverNow;}
+function canSearch(){return view?.role==='team'&&view.game.phase==='search'&&view.game.searchPausedMs==null&&view.game.teams[0].status==='searching'&&view.game.searchEndsAt>view.serverNow;}
 function cardNode(card){const d=document.createElement('div');d.className='own-card';const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 100 100');const ports={N:[50,0],S:[50,100],E:[100,50],W:[0,50]};for(const side of card.shape){const l=document.createElementNS(svg.namespaceURI,'line');Object.entries({x1:50,y1:50,x2:ports[side][0],y2:ports[side][1],stroke:'currentColor','stroke-width':4}).forEach(([k,v])=>l.setAttribute(k,String(v)));svg.append(l);}const b=document.createElement('b');b.textContent=card.value;d.append(svg,b);return d;}
 function option(value,text){const o=document.createElement('option');o.value=value;o.textContent=text;return o;}
-function updateButtons(){const ready=detected?.card&&!busy;$('claim').hidden=!!detected?.question;$('question-form').hidden=!detected?.question;$('answer-submit').disabled=busy;$('answer-input').disabled=busy;mathKeypad.setDisabled(busy);$('claim').disabled=!ready;$('claim').textContent=ready?'발견한 카드 획득하기':'카드를 찾아보세요';}
+function updateButtons(){const blocked=view?.role==='team'&&!canSearch();const ready=detected?.card&&!busy&&!blocked;$('claim').hidden=!!detected?.question;$('question-form').hidden=!detected?.question;$('answer-submit').disabled=busy||blocked;$('answer-input').disabled=busy||blocked;mathKeypad.setDisabled(busy||blocked);$('claim').disabled=!ready;$('claim').textContent=ready?'발견한 카드 획득하기':'카드를 찾아보세요';}
 function render(){
  const admin=view.role==='admin',g=view.game;$('teacher').hidden=!admin;$('student').hidden=admin;$('heading').textContent=admin?'물건에 카드를 숨기세요.':g.teams[0].name+'의 탐색';$('role').textContent=admin?'TEACHER · AR SETUP':'OUR TEAM';$('subtitle').textContent=g.title;
  for(const id of ['back','admin-back','student-back'])$(id).href=backLink();
@@ -31,9 +31,9 @@ function render(){
   for(const id of ['label','photo','cards','auto-count','auto','edit','edit-card','edit-value','edit-shape','question','answers','problem-image','problem-remove','bank-open'])$(id).disabled=busy||locked;
   if(versionSeen!==ar.version){versionSeen=ar.version;renderTargets();}
  }else{
-  $('phase').textContent=canSearch()?'수색 중 · 남은 시간 '+Math.max(0,Math.ceil((g.searchEndsAt-view.serverNow)/60000))+'분':g.phase==='setup'?'선생님의 시작 신호를 기다려주세요.':'수색 종료 · 관리자 패드에서 수식로드를 완성하세요.';
+  $('phase').textContent=canSearch()?'수색 중 · 남은 시간 '+Math.max(0,Math.ceil((g.searchEndsAt-view.serverNow)/60000))+'분':g.phase==='search'&&g.searchPausedMs!=null?'수색 일시 정지 · 남은 시간 '+Math.ceil(g.searchPausedMs/60000)+'분 · 선생님의 재개 신호를 기다려주세요.':g.phase==='setup'?'선생님의 시작 신호를 기다려주세요.':'수색 종료 · 관리자 패드에서 수식로드를 완성하세요.';
   $('practice-link').href=backLink()+'&practice=1';$('practice-link').hidden=g.phase==='setup';$('scan').disabled=!canSearch()||busy||scanStarting;$('own-count').textContent=g.cards.length+'장';$('own-cards').replaceChildren(...g.cards.map(cardNode));if(!g.cards.length){const p=document.createElement('p');p.textContent='아직 획득한 카드가 없어요.';$('own-cards').append(p);}
-  if(!canSearch()&&(vision||scanStarting)){close();message('수색이 종료됐습니다. 모은 카드는 저장되어 있어요.');}
+  if(!canSearch()&&(vision||scanStarting)){close();message(g.searchPausedMs!=null?'수색이 일시 정지됐어요. 재개되면 AR 탐색을 다시 시작하세요.':'수색이 종료됐습니다. 모은 카드는 저장되어 있어요.');}
  }
  updateButtons();
 }

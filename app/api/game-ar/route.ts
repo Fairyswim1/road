@@ -43,7 +43,7 @@ async function auth(req:Request){
  if(g.mode!=="ar"||!g.ar)fail("AR 수업이 아니에요.");
  return {row,g,ar:g.ar,admin,team};
 }
-function searching(a:Awaited<ReturnType<typeof auth>>){if(a.g.phase!=="search"||!a.g.searchEndsAt||a.g.searchEndsAt<=Date.now()||(!a.admin&&a.team?.status!=="searching"))fail("수색이 종료됐어요. 보관함으로 돌아가주세요.",409);}
+function searching(a:Awaited<ReturnType<typeof auth>>){if(a.g.searchPausedMs!=null)fail("수색이 일시 정지됐어요. 선생님이 재개할 때까지 기다려주세요.",409);if(a.g.phase!=="search"||!a.g.searchEndsAt||a.g.searchEndsAt<=Date.now()||(!a.admin&&a.team?.status!=="searching"))fail("수색이 종료됐어요. 보관함으로 돌아가주세요.",409);}
 async function save(a:Awaited<ReturnType<typeof auth>>,next:ArSetup){
  a.g.ar=next;
  const r=await database().prepare("UPDATE games SET state=?,revision=revision+1 WHERE id=? AND revision=?").bind(JSON.stringify(a.g),a.row.id,a.row.revision).run();
