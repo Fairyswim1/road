@@ -1,0 +1,25 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {dropCard} from '../lib/card-drop.ts';
+const empty=()=>Array(36).fill(null);
+const first=dropCard(empty(),'a',0);assert.equal(first[0],'a');
+const moved=dropCard(first,'a',35);assert.equal(moved[0],null);assert.equal(moved[35],'a');assert.equal(first[0],'a');
+const replaced=dropCard(moved,'b',35);assert.equal(replaced.filter(Boolean).length,1);assert.equal(replaced[35],'b');
+assert.ok(dropCard(replaced,'b','inventory').every(x=>x===null));assert.deepEqual(dropCard(replaced,'b',35),replaced);
+assert.throws(()=>dropCard(empty(),'a',36));assert.throws(()=>dropCard(empty(),'a',-1));
+const base='http://127.0.0.1:5173';
+async function post(body,token){const r=await fetch(base+'/api/game',{method:'POST',headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:JSON.stringify(body)});return {status:r.status,data:await r.json()};}
+const made=await post({action:'create',title:'드래그 배치 테스트',names:['테스트 모둠','대기 모둠'],pin:'246810',cardCount:60,searchMinutes:20,solveMinutes:10,allNumbers:false});assert.equal(made.status,200);
+const {id,adminToken,game:g}=made.data,t=g.teams[0],ids=g.cards.slice(0,3).map(c=>c.id);
+const call=(action,extra={},token=adminToken)=>post({id,action,...extra},token);
+await call('start');for(const c of g.cards.slice(0,3))assert.equal((await call('claim',{code:c.secret},t.token)).status,200);
+await call('return',{teamId:t.id});await call('solve',{teamId:t.id});
+let board=dropCard(empty(),ids[0],0);assert.equal((await call('board',{teamId:t.id,board,boardVersion:0})).status,200);
+board=dropCard(board,ids[0],1);assert.equal((await call('board',{teamId:t.id,board,boardVersion:1})).status,200);
+assert.equal((await call('board',{teamId:t.id,board:empty(),boardVersion:1})).status,409);
+board=dropCard(board,ids[1],1);assert.equal((await call('board',{teamId:t.id,board,boardVersion:2})).status,200);
+board=dropCard(board,ids[1],'inventory');assert.equal((await call('board',{teamId:t.id,board,boardVersion:3})).status,200);
+await call('submit',{teamId:t.id,incomplete:true});assert.equal((await call('board',{teamId:t.id,board:dropCard(empty(),ids[0],0),boardVersion:4})).status,409);
+assert.equal((await call('practice',{teamId:t.id,board:dropCard(empty(),ids[0],0),boardVersion:0},t.token)).status,200);
+fs.writeFileSync('.sites-runtime/drag-ui.json',JSON.stringify({id,adminToken,token:t.token,ids}));
+console.log('PASS card placement, movement, replacement, inventory return, immutable input, official board save and stale-version rejection, submitted-board lock, practice after submission');
