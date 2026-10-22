@@ -66,7 +66,15 @@ export async function GET(req:Request){try{
   key=t.problemImage;
  }
  else{if(!a.admin)fail("접근 권한이 없어요.",403);if(asset!=="photo"&&asset!=="target")fail("잘못된 요청입니다.");const t=a.ar.targets.find(t=>t.id===url.searchParams.get("target"));key=t?`${t.key}/${asset}`:undefined;}
- if(!key)fail("파일을 찾을 수 없어요.",404);const o=await env.BUCKET?.get(key);if(!o)fail("파일을 찾을 수 없어요.",404);
+ if(!key)fail("파일을 찾을 수 없어요.",404);let o=await env.BUCKET?.get(key);if(!o)fail("파일을 찾을 수 없어요.",404);
+ if(asset==="bundle"&&o.customMetadata?.arFormat==="targets-v1"){
+  const manifest=await o.json<{parts:string[]}>();
+  const part=url.searchParams.get("part");
+  // Only the part count leaves the server. Storage keys, labels and cards stay private.
+  if(part===null)return json({format:"targets-v1",parts:manifest.parts.length});
+  if(!/^\d+$/.test(part)||!Number.isSafeInteger(Number(part))||Number(part)>=manifest.parts.length)fail("인식 데이터를 찾을 수 없어요.",404);
+  o=await env.BUCKET!.get(manifest.parts[Number(part)]);if(!o)fail("인식 데이터를 찾을 수 없어요.",404);
+ }
  return new Response(o.body,{headers:{"Content-Type":(asset==="photo"||asset==="problem")?(o.httpMetadata?.contentType||"image/jpeg"):"application/octet-stream","Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"}});
  }catch(e){return error(e);}}
 export async function POST(req:Request){try{
@@ -97,6 +105,18 @@ export async function POST(req:Request){try{
  if(!a.admin)fail("교사만 사용할 수 있어요.",403);
  if(a.g.phase!=="setup")fail("수색 시작 전만 배치를 바꿀 수 있어요.",409);
  if(!env.BUCKET)fail("사진 저장소에 연결하지 못했어요.",503);
+ if(action==="publish"&&req.headers.get("content-type")?.startsWith("application/json")){
+  const raw=await req.text();if(raw.length>300)fail("잘못된 저장 요청입니다.");const b=JSON.parse(raw);
+  if(b.version!==a.ar.version)fail("배치가 변경됐어요. 새로고침 후 다시 시도해주세요.",409);
+  if(!a.ar.targets.length)fail("물건을 먼저 등록해주세요.");
+  if(a.ar.ready&&a.ar.bundle)return json({ok:true});
+  // Recognition files already exist. Publish an immutable ordered index without
+  // merging/re-uploading them, so there is no aggregate recognition-size limit.
+  const key=`game-ar/${a.g.id}/manifest-${secret()}`;
+  await env.BUCKET.put(key,JSON.stringify({parts:a.ar.targets.map(t=>`${t.key}/target`)}),{customMetadata:{arFormat:"targets-v1"}});
+  try{await save(a,{...a.ar,ready:true,bundle:key});}catch(e){await env.BUCKET.delete(key);throw e;}
+  return json({ok:true});
+ }
  if(action==="remove"){
   const raw=await req.text();if(raw.length>300)fail("요청이 너무 큽니다.");const b=JSON.parse(raw);
   if(!a.ar.targets.some(t=>t.id===b.targetId))fail("등록한 물건이 아니에요.");
