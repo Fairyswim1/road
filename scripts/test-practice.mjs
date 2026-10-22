@@ -30,8 +30,23 @@ assert.equal((await request('board',{teamId:t1.id,board:draft,boardVersion:0},t1
 assert.equal((await request('submit',{teamId:t1.id,incomplete:true},t1.token)).status,403);
 assert.equal((await request('practice',{teamId:t1.id,board:empty(),boardVersion:1})).status,200);
 await request('return',{teamId:t2.id});await request('submit',{teamId:t2.id,incomplete:true});
-assert.equal((await request('practice',{teamId:t2.id,board:empty(),boardVersion:0},t2.token)).status,409);
+const snapshotBefore=(await state(adminToken)).game,officialBefore=snapshotBefore.teams[1];
+const submittedDraft=empty();submittedDraft[0]=ids[11];
+assert.equal((await request('practice',{teamId:t2.id,board:submittedDraft,boardVersion:0},t2.token)).status,200);
+assert.equal((await request('practice',{teamId:t2.id,board:empty(),boardVersion:1},t2.token)).status,200);
+await request('return',{teamId:t1.id});await request('submit',{teamId:t1.id,incomplete:true});
+assert.equal((await state(adminToken)).game.phase,'ended');
+assert.equal((await request('practice',{teamId:t2.id,board:submittedDraft,boardVersion:2},t2.token)).status,200);
+assert.equal((await request('practice',{teamId:t2.id,board:empty(),boardVersion:3})).status,200);
+const cleared=(await state(adminToken)).game;
+assert.ok(cleared.teams[1].practiceBoard.every(x=>x===null));assert.equal(cleared.phase,'ended');
+for(const k of ['board','boardVersion','startedAt','usedMs','status','result'])assert.deepEqual(cleared.teams[1][k],officialBefore[k]);
+assert.deepEqual(cleared.cards,snapshotBefore.cards);
+assert.equal(cleared.cards.filter(c=>c.owner===t2.id).length,1);
+assert.equal((await request('board',{teamId:t2.id,board:submittedDraft,boardVersion:0})).status,400);
+
 const clone=await request('clone',{requestId:crypto.randomUUID().replaceAll('-',''),title:'다른 학급',names:['새1','새2'],pin:'246810'});
 assert.equal(clone.status,200);assert.ok(clone.data.game.teams.every(t=>!t.practiceBoard&&!t.practiceVersion&&t.board.every(x=>x===null)));
+assert.equal((await request('practice',{teamId:t2.id,board:submittedDraft,boardVersion:4},t2.token)).status,200);
 mkdirSync('.sites-runtime',{recursive:true});writeFileSync('.sites-runtime/practice-session.json',JSON.stringify({id,adminToken,t1:t1.token,t2:t2.token,ids}));
-console.log('PASS practice: own-card permissions, private team projection, duplicate/unknown cards, concurrency, persistent state, separate official board/timer/status, post-submit lock, clone reset');
+console.log('PASS practice: own-card permissions, private team projection, duplicate/unknown cards, concurrency, persistent state, separate official board/timer/status, post-submit and ended-class practice reset with official result preserved, clone reset');
