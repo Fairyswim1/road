@@ -124,17 +124,21 @@ export async function POST(req:Request){try{
   await env.BUCKET.put(key,await target.arrayBuffer());
   try{await save(a,{...a.ar,ready:true,bundle:key});}catch(e){await env.BUCKET.delete(key);throw e;}
  }else{
-  const photo=form.get("photo"),label=form.get("label"),ids=JSON.parse(String(form.get("cards")||"[]"));
+  const photo=form.get("photo"),label=form.get("label")??"",ids=JSON.parse(String(form.get("cards")||"[]"));
   const prepared=await picture(form.get("problemImage"));
   const task=problem(form.get("question")||"",JSON.parse(String(form.get("answers")||"[]")),!!prepared);
   const identity=await problemIdentity(a.ar.targets,form.get('bankProblemId'),prepared);
-  if(!(photo instanceof File)||photo.size>1_000_000||photo.size<100||typeof label!=="string"||!label.trim()||label.length>60)fail("물건 이름과 사진을 확인해주세요.");
+  if(!(photo instanceof File)||photo.size>1_000_000||photo.size<100||typeof label!=="string"||label.length>60)fail("장소 메모는 60자 이하로 입력하고 물건 사진을 확인해주세요.");
+  const usedLabels=new Set(a.ar.targets.map(t=>t.label));
+  let locationNumber=a.ar.targets.length+1;
+  while(usedLabels.has(`장소 ${locationNumber}`))locationNumber++;
+  const locationLabel=label.trim()||`장소 ${locationNumber}`;
   if(!Array.isArray(ids)||!ids.length||ids.length>30||new Set(ids).size!==ids.length||ids.some(id=>typeof id!=="string"||!a.g.cards.some(c=>c.id===id)||a.ar.targets.some(t=>t.cards.includes(id))))fail("아직 배치하지 않은 카드를 1~30장 선택해주세요.");
   const photoBytes=await photo.arrayBuffer(),photoHash=await hash(photoBytes);
   if(a.ar.targets.some(t=>t.photoHash===photoHash))fail("이미 등록한 사진입니다. 서로 다른 물건을 사용해주세요.");
   await env.BUCKET.put(`${key}/photo`,photoBytes,{httpMetadata:{contentType:"image/jpeg"}});await env.BUCKET.put(`${key}/target`,await target.arrayBuffer());
   if(prepared)await env.BUCKET.put(`${key}/problem`,prepared.bytes,{httpMetadata:{contentType:prepared.type}});
-  try{await save(a,{version:a.ar.version+1,ready:false,bundle:null,targets:[...a.ar.targets,{id:secret(),label:label.trim(),cards:ids,key,photoHash,...task,...identity,problemImage:prepared?`${key}/problem`:undefined,solvedBy:[]}]});}catch(e){await env.BUCKET.delete([`${key}/photo`,`${key}/target`,`${key}/problem`]);throw e;}
+  try{await save(a,{version:a.ar.version+1,ready:false,bundle:null,targets:[...a.ar.targets,{id:secret(),label:locationLabel,cards:ids,key,photoHash,...task,...identity,problemImage:prepared?`${key}/problem`:undefined,solvedBy:[]}]});}catch(e){await env.BUCKET.delete([`${key}/photo`,`${key}/target`,`${key}/problem`]);throw e;}
  }
  return json({ok:true});
  }catch(e){return error(e);}}
