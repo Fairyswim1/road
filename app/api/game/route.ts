@@ -110,6 +110,17 @@ export async function POST(req:Request){try{
     if(g.mode==="ar"&&(!g.ar?.ready||!g.ar.targets.length||!g.ar.bundle))fail("AR 카드 배치를 완료하고 탐색 데이터를 저장해주세요.",409);
     if(g.mode==="ar"&&g.ar?.targets.some(t=>(!t.question&&!t.problemImage)||!t.answers?.length))fail("모든 물건에 수학문제와 정답을 등록해주세요.",409);
     if(g.phase!=="setup")fail("이미 시작된 수업이에요.",409);g.phase="search";g.searchEndsAt=now+g.searchMinutes*60000;log(g,"카드 수색이 시작됐어요.");
+   }else if(b.action==="search_reopen"){
+    if(g.phase!=="solve")fail("수색 종료 후 수식 완성 단계에서 다시 열 수 있어요.",409);
+    if(b.searchTimerVersion!==(g.searchTimerVersion||0))fail("수색 상태가 변경됐어요. 최신 화면에서 다시 눌러주세요.",409);
+    const minutes=num(b.minutes,1,120),teams=g.teams.filter(t=>t.status!=="submitted");
+    if(!teams.length)fail("모든 모둠이 최종 제출했어요.",409);
+    const remaining=g.cards.filter(c=>!c.owner&&(g.mode!=="ar"||g.ar?.targets.some(t=>t.cards.includes(c.id))));
+    if(!remaining.length)fail("숨겨진 카드를 모두 획득했어요. 추가로 수색할 카드가 없습니다.",409);
+    teams.forEach(t=>{pause(t,now);t.status="searching";});
+    g.phase="search";g.searchPausedMs=null;g.searchEndsAt=now+minutes*60000;
+    g.searchTimerVersion=(g.searchTimerVersion||0)+1;
+    log(g,`수색을 ${minutes}분 동안 다시 열었어요. 획득한 카드와 수식판은 유지됩니다.`);
    }else if(["search_pause","search_resume","search_add"].includes(b.action)){
     if(g.phase!=="search")fail("진행 중인 수색에서만 시간을 조절할 수 있어요.",409);
     if(b.searchTimerVersion!==(g.searchTimerVersion||0))fail("다른 화면에서 수색 시간이 변경됐어요. 최신 상태에서 다시 눌러주세요.",409);
