@@ -56,10 +56,12 @@ export async function GET(req:Request){try{
   if(a.admin)return json({version:a.ar.version,ready:a.ar.ready,targets:a.ar.targets});
   searching(a);if(!a.ar.ready)fail("탐색을 준비 중입니다.",409);
   // Recognition IDs only: never return labels, photos, card mappings or ownership.
-  return json({version:a.ar.version,targets:a.ar.targets.map(t=>({id:t.id}))});
+  return json({version:a.ar.version,bundleVersion:await hash(new TextEncoder().encode(a.ar.bundle||"")),targets:a.ar.targets.map(t=>({id:t.id}))});
  }
  let key:string|undefined;
- if(asset==="bundle"){if(!a.admin)searching(a);if(!a.ar.ready)fail("탐색을 준비 중입니다.",409);key=a.ar.bundle||undefined;}
+ if(asset==="bundle"){if(!a.admin)searching(a);if(!a.ar.ready)fail("탐색을 준비 중입니다.",409);key=a.ar.bundle||undefined;
+  const expected=url.searchParams.get("bundleVersion");if(expected&&expected!==await hash(new TextEncoder().encode(key||"")))fail("탐색 배치가 변경됐어요. 다시 시작해주세요.",409);
+ }
  else if(asset==="problem"){
   const t=a.ar.targets.find(t=>t.id===url.searchParams.get("target"));if(!t?.problemImage)fail("문제 그림을 찾을 수 없어요.",404);
   if(!a.admin){searching(a);if(!a.g.cards.some(c=>t.cards.includes(c.id)&&!c.owner)||url.searchParams.get("ticket")!==await imageTicket(t.problemImage,a.team!.token!))fail("발견한 문제만 열 수 있어요.",403);}

@@ -9,9 +9,11 @@ export async function compilePhoto(blob,onProgress){
  try{const img=new Image();img.src=url;await img.decode();const data=await compiler.compileImageTargets([img],onProgress);const points=data[0].matchingData.reduce((n,l)=>n+l.maximaPoints.length+l.minimaPoints.length,0);if(points<30)throw new Error('무늬가 부족합니다. 그림이 다양한 다른 표지를 골라주세요.');return new Blob([compiler.exportData()]);}finally{URL.revokeObjectURL(url);}
 }
 export async function combineTargets(buffers){const {Compiler}=await import(CDN+'mindar-image.prod.js');const compiler=new Compiler(),data=[];for(const b of buffers){const imported=compiler.importData(b);if(imported.length!==1)throw new Error('등록 데이터를 확인해주세요.');data.push(...imported);}compiler.data=data;return new Blob([compiler.exportData()]);}
+let enginePromise;
+export function prepareVision(){return enginePromise??=(Promise.all([import(CDN+'mindar-image-three.prod.js'),import('three')]).catch(e=>{enginePromise=null;throw e;}));}
 export async function startVision({container,blob,count,onFound,onLost,signal}){
  const cardArt=new Image();cardArt.src="/art/card-slate.webp";await Promise.allSettled([cardArt.decode(),document.fonts.load('800 132px "Road Myeongjo"')]);
- const [{MindARThree},THREE]=await Promise.all([import(CDN+'mindar-image-three.prod.js'),import('three')]);
+ const [{MindARThree},THREE]=await prepareVision();
  if(signal.aborted)throw new Error('탐색이 취소됐어요.');
  const url=URL.createObjectURL(blob),ar=new MindARThree({container,imageTargetSrc:url,maxTrack:1,uiLoading:'no',uiScanning:'no',uiError:'no',warmupTolerance:5,missTolerance:5});
  ar.renderer.setPixelRatio(Math.min(devicePixelRatio,2));
