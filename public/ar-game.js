@@ -16,7 +16,20 @@ $('bank-open').onclick=()=>{if(busy||view?.role!=='admin'||view.game.phase!=='se
 async function response(r){const text=await r.text();let d;try{d=JSON.parse(text);}catch{throw Object.assign(new Error(r.status===413?'인식 데이터가 너무 큽니다. 물건 수를 줄여주세요.':'서버에 연결하지 못했습니다. 잠시 후 다시 시도하세요.'),{status:r.status});}if(!r.ok)throw Object.assign(new Error(d.error||'요청을 처리하지 못했습니다.'),{status:r.status});return d;}
 async function arCall(action,body){return response(await fetch(api+'&action='+action,{method:'POST',headers:body instanceof FormData?headers():{...headers(),'Content-Type':'application/json'},body:body instanceof FormData?body:JSON.stringify(body)}));}
 async function gameCall(action,extra={}){return response(await fetch('/api/game',{method:'POST',headers:{...headers(),'Content-Type':'application/json'},body:JSON.stringify({action,id:session.id,...extra})}));}
-async function refresh(){view=await response(await fetch('/api/game?id='+session.id,{headers:headers(),cache:'no-store'}));render();}
+function acceptView(next){
+ if(view&&(next.revision<view.revision||(next.revision===view.revision&&next.serverNow<view.serverNow)))return;
+ view=next;render();
+}
+async function refresh(){acceptView(await response(await fetch('/api/game?id='+session.id,{headers:headers(),cache:'no-store'})));}
+let haltState='';
+function updateSearchNotice(){
+ const g=view.game,state=view.role==='team'?(g.phase==='search'&&g.searchPausedMs!=null?'paused':g.phase==='solve'||g.phase==='ended'?'ended':''):'';
+ $('search-halt-banner').hidden=!state;
+ if(state){const title=state==='paused'?'수색 일시 정지':'수색 종료';$('search-halt-title').textContent=title;$('search-halt-label').textContent=title;}
+ if(state!==haltState){haltState=state;if(state){close();$('search-halt-dialog').showModal();}else $('search-halt-dialog').close();}
+}
+$('search-halt-confirm').onclick=()=>$('search-halt-dialog').close();
+$('search-halt-dialog').addEventListener('cancel',e=>e.preventDefault());
 function backLink(){return '/#g='+session.id+'&'+(view.role==='admin'?'a':'t')+'='+session.token;}
 function canSearch(){return view?.role==='team'&&view.game.phase==='search'&&view.game.searchPausedMs==null&&view.game.teams[0].status==='searching'&&view.game.searchEndsAt>view.serverNow;}
 function cardNode(card){const d=document.createElement('div');d.className='own-card';const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 100 100');const ports={N:[50,0],S:[50,100],E:[100,50],W:[0,50]};for(const side of card.shape){const l=document.createElementNS(svg.namespaceURI,'line');Object.entries({x1:50,y1:50,x2:ports[side][0],y2:ports[side][1],stroke:'currentColor','stroke-width':4}).forEach(([k,v])=>l.setAttribute(k,String(v)));svg.append(l);}const b=document.createElement('b');b.textContent=card.value;d.append(svg,b);return d;}
@@ -36,6 +49,7 @@ function render(){
   $('practice-link').href=backLink()+'&practice=1';$('practice-link').hidden=g.phase==='setup';$('scan').disabled=!canSearch()||busy||scanStarting;$('own-count').textContent=g.cards.length+'장';$('own-cards').replaceChildren(...g.cards.map(cardNode));if(!g.cards.length){const p=document.createElement('p');p.textContent='아직 획득한 카드가 없어요.';$('own-cards').append(p);}
   if(!canSearch()&&(vision||scanStarting)){close();message(g.searchPausedMs!=null?'수색이 일시 정지됐어요. 재개되면 AR 탐색을 다시 시작하세요.':'수색이 종료됐습니다. 모은 카드는 저장되어 있어요.');}
  }
+ updateSearchNotice();
  updateButtons();
 }
 function fillCards(){const g=view.game,assigned=new Set(g.ar.targets.flatMap(t=>t.cards));$('cards').replaceChildren(...g.cards.filter(c=>!assigned.has(c.id)).map(c=>option(c.id,`${c.id} · ${c.value} · ${shapes[c.shape]}`)));selectRandomCards();$('edit-card').replaceChildren(...g.cards.map(c=>option(c.id,`${c.id} · ${c.value} · ${shapes[c.shape]}`)));editSelection();}
@@ -103,7 +117,7 @@ async function startScan(){if(scanStarting||vision||!canSearch())return;message(
  if(epoch!==scanEpoch){vision.stop();vision=null;return;}$('camera-state').textContent='탐색 중';$('camera-help').textContent='주변 물건을 천천히 비춰주세요.';
  }catch(e){if(epoch===scanEpoch){close();message(e?.message||'카메라를 열지 못했습니다. Safari 카메라 권한을 확인해주세요.');}}finally{if(epoch===scanEpoch){scanStarting=false;render();}}}
 $('scan').onclick=()=>void startScan();
-$('claim').onclick=async()=>{if(busy||!detected?.code)return;const code=detected.code;busy=true;updateButtons();try{view=await gameCall('claim',{code});detected=null;activeTarget=null;$('reward').hidden=true;vision?.clear();render();$('camera-help').textContent='획득 완료! 우리 모둠 보관함에 저장했습니다. 이제 다른 장소를 찾아보세요.';}catch(e){detected=null;activeTarget=null;$('reward').hidden=true;vision?.clear();$('camera-help').textContent=e.message;}finally{busy=false;updateButtons();}};
+$('claim').onclick=async()=>{if(busy||!detected?.code)return;const code=detected.code;busy=true;updateButtons();try{acceptView(await gameCall('claim',{code}));detected=null;activeTarget=null;$('reward').hidden=true;vision?.clear();render();$('camera-help').textContent='획득 완료! 우리 모둠 보관함에 저장했습니다. 이제 다른 장소를 찾아보세요.';}catch(e){detected=null;activeTarget=null;$('reward').hidden=true;vision?.clear();$('camera-help').textContent=e.message;}finally{busy=false;updateButtons();}};
 $('close').onclick=()=>{close();render();};
 document.addEventListener('visibilitychange',()=>{if(document.hidden){close();}else void refresh().catch(e=>message(e.message));});window.addEventListener('pagehide',()=>{clearInterval(refreshTimer);close();for(const u of urls)URL.revokeObjectURL(u);});
-try{if(!session.id||!session.token)throw new Error('관리자 또는 모둠 참여 링크에서 AR 화면을 열어주세요.');await refresh();if(view.game.mode!=='ar')throw new Error('새 AR 수업을 만들어주세요.');const autoScan=new URLSearchParams(location.search).get('scan')==='1';if(autoScan){const url=new URL(location.href);url.searchParams.delete('scan');history.replaceState(null,'',url.pathname+url.search+url.hash);if(canSearch()&&!document.hidden)void startScan();}refreshTimer=setInterval(()=>{if(document.hidden||busy)return;void refresh().catch(()=>{message('인터넷 연결을 확인해주세요.');detected=null;vision?.clear();updateButtons();});void discover();},2000);}catch(e){message(e.message);$('heading').textContent='수업 링크를 확인해주세요.';}
+try{if(!session.id||!session.token)throw new Error('관리자 또는 모둠 참여 링크에서 AR 화면을 열어주세요.');await refresh();if(view.game.mode!=='ar')throw new Error('새 AR 수업을 만들어주세요.');const autoScan=new URLSearchParams(location.search).get('scan')==='1';if(autoScan){const url=new URL(location.href);url.searchParams.delete('scan');history.replaceState(null,'',url.pathname+url.search+url.hash);if(canSearch()&&!document.hidden)void startScan();}refreshTimer=setInterval(()=>{if(document.hidden||(busy&&view.role==='admin'))return;void refresh().catch(()=>{message('인터넷 연결을 확인해주세요.');detected=null;vision?.clear();updateButtons();});void discover();},2000);}catch(e){message(e.message);$('heading').textContent='수업 링크를 확인해주세요.';}
