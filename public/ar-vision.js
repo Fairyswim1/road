@@ -1,3 +1,4 @@
+import {tuneCamera,widenRecognition} from './ar-recognition.js';
 const CDN='https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/';
 export async function photoFile(file){
  if(!file||file.size>25000000)throw new Error('25MB 이하 사진을 골라주세요.');
@@ -15,7 +16,10 @@ export async function startVision({container,blob,count,onFound,onLost,signal}){
  const cardArt=new Image();cardArt.src="/art/card-slate.webp";await Promise.allSettled([cardArt.decode(),document.fonts.load('800 132px "Road Myeongjo"')]);
  const [{MindARThree},THREE]=await prepareVision();
  if(signal.aborted)throw new Error('탐색이 취소됐어요.');
- const url=URL.createObjectURL(blob),ar=new MindARThree({container,imageTargetSrc:url,maxTrack:1,uiLoading:'no',uiScanning:'no',uiError:'no',warmupTolerance:5,missTolerance:5});
+ const url=URL.createObjectURL(blob),ar=new MindARThree({container,imageTargetSrc:url,maxTrack:1,uiLoading:'no',uiScanning:'no',uiError:'no',warmupTolerance:3,missTolerance:8});
+ // Configure the stream before MindAR sizes its GPU inputs and camera projection.
+ const startVideo=ar._startVideo.bind(ar);
+ ar._startVideo=async()=>{await startVideo();await tuneCamera(ar.video,signal);};
  ar.renderer.setPixelRatio(Math.min(devicePixelRatio,2));
  const anchors=Array.from({length:count},(_,index)=>{const a=ar.addAnchor(index);a.onTargetFound=()=>onFound(index);a.onTargetLost=()=>onLost(index);return a;});
  let mesh=null,disposed=false;
@@ -24,6 +28,7 @@ export async function startVision({container,blob,count,onFound,onLost,signal}){
  signal.addEventListener('abort',stop,{once:true});
  let timer;try{await Promise.race([ar.start().then(()=>{if(disposed)stop();}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('카메라를 준비하지 못했습니다. Safari 카메라 권한을 확인하고 다시 시도하세요.')),60000);})]);}catch(e){stop();throw e;}finally{clearTimeout(timer);}
  if(disposed)throw new Error('탐색이 취소됐어요.');
+ widenRecognition(ar.controller);
  ar.renderer.setAnimationLoop(()=>ar.renderer.render(ar.scene,ar.camera));
  return {stop,clear,show(index,card){clear();if(disposed||!anchors[index])return;const canvas=document.createElement('canvas');canvas.width=512;canvas.height=512;const c=canvas.getContext('2d');const fill=c.createLinearGradient(0,0,512,512);fill.addColorStop(0,'#242123');fill.addColorStop(1,'#09090b');c.fillStyle=fill;c.fillRect(0,0,512,512);if(cardArt.complete&&cardArt.naturalWidth)c.drawImage(cardArt,0,0,512,512);c.strokeStyle='#96908a';c.lineWidth=4;c.strokeRect(3,3,506,506);const ports={N:[256,0],S:[256,512],E:[512,256],W:[0,256]};c.strokeStyle='#e66369';c.lineWidth=17;c.lineCap='butt';for(const d of card.shape){c.beginPath();c.moveTo(256,256);c.lineTo(...ports[d]);c.stroke();}c.fillStyle='#fffaf2';c.font='800 132px \"Road Myeongjo\",Georgia,serif';c.textAlign='right';c.textBaseline='top';c.shadowColor='#000';c.shadowBlur=8;c.fillText(card.value,455,57);const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;mesh=new THREE.Mesh(new THREE.PlaneGeometry(.65,.65),new THREE.MeshBasicMaterial({map:texture,transparent:true,side:THREE.DoubleSide}));mesh.position.z=.04;anchors[index].group.add(mesh);}};
 }
