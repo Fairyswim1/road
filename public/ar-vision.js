@@ -40,7 +40,7 @@ export async function startVision({container,blob,bundleVersion,count,onFound,on
  async function tick(){
   if(stopped||paused)return;if(working){timer=setTimeout(tick,180);return;}
   if(video.readyState<2){timer=setTimeout(tick,180);return;}working=true;
-  try{const index=await recognize(video,attempt++%2===0?'center':'whole');if(stopped||paused)return;if(index>=0&&index<count){pause();onFound(index);}else if(attempt%8===0)onStatus('물건 앞면을 중앙에 비춰주세요. 반사광은 피하고, 안 잡히면 아래 정밀 인식을 눌러주세요.');}
+  try{const index=await recognize(video,attempt++%2===0?'center':'whole');if(stopped||paused)return;if(index>=0&&index<count){pause();onFound(index);}else if(attempt%8===0)onStatus('잘 안 잡히면 정밀 인식을 눌러주세요.');}
   catch(e){pause();if(!stopped)onStatus('인식을 완료하지 못했어요. 카메라를 닫고 다시 열어주세요.');}
   finally{working=false;if(!paused&&!stopped)timer=setTimeout(tick,180);}
  }
@@ -54,7 +54,7 @@ export async function startVision({container,blob,bundleVersion,count,onFound,on
     const index=await recognize(frozen,...variants[i]);if(stopped)return false;
     if(index>=0&&index<count){onFound(index);return true;}
    }
-   onStatus('이 사진에서는 찾지 못했어요. 반사광을 피하고 등록된 앞면이 크게 보이게 다시 비춰주세요.');return false;
+   onStatus('찾지 못했어요. 반사광을 피해 다시 비춰주세요.');return false;
   }catch(e){if(!stopped)onStatus('사진 인식을 완료하지 못했어요. 카메라를 다시 열어주세요.');return false;}
   finally{working=false;}
  }

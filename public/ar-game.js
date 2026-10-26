@@ -35,7 +35,7 @@ function canSearch(){return view?.role==='team'&&view.game.phase==='search'&&vie
 function canPlace(){return view?.role==='admin'&&(view.game.phase==='setup'||view.game.phase==='search');}
 function cardNode(card){const d=document.createElement('div');d.className='own-card';const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 100 100');const ports={N:[50,0],S:[50,100],E:[100,50],W:[0,50]};for(const side of card.shape){const l=document.createElementNS(svg.namespaceURI,'line');Object.entries({x1:50,y1:50,x2:ports[side][0],y2:ports[side][1],stroke:'currentColor','stroke-width':4}).forEach(([k,v])=>l.setAttribute(k,String(v)));svg.append(l);}const b=document.createElement('b');b.textContent=card.value;d.append(svg,b);return d;}
 function option(value,text){const o=document.createElement('option');o.value=value;o.textContent=text;return o;}
-function updateButtons(){const blocked=view?.role==='team'&&!canSearch();const ready=detected?.card&&!busy&&!blocked;$('claim').hidden=!!detected?.question||!$('place-notice').hidden;$('question-form').hidden=!detected?.question;$('answer-submit').disabled=busy||blocked;$('answer-input').disabled=busy||blocked;mathKeypad.setDisabled(busy||blocked);$('claim').disabled=!ready;$('claim').textContent=ready?'발견한 카드 획득하기':'카드를 찾아보세요';const showingProblem=!!(detected?.question||detected?.card);$('precision-controls').hidden=showingProblem||!$('place-notice').hidden;$('precision-scan').disabled=blocked||photoBusy||!vision;$('resume-scan').disabled=blocked||photoBusy||!vision;$('precision-scan').textContent=photoBusy?'사진을 분석하는 중…':'멈춰서 정밀 인식';}
+function updateButtons(){const blocked=view?.role==='team'&&!canSearch();const ready=detected?.card&&!busy&&!blocked;$('claim').hidden=!detected?.card||!$('place-notice').hidden;$('question-form').hidden=!detected?.question;$('answer-submit').disabled=busy||blocked;$('answer-input').disabled=busy||blocked;mathKeypad.setDisabled(busy||blocked);$('claim').disabled=!ready;$('claim').textContent=ready?'발견한 카드 획득하기':'카드를 찾아보세요';const showingProblem=!!(detected?.question||detected?.card);$('precision-controls').hidden=showingProblem||!$('place-notice').hidden;$('camera').dataset.mode=$('precision-controls').hidden?'content':'search';$('precision-scan').disabled=blocked||photoBusy||!vision;$('resume-scan').disabled=blocked||photoBusy||!vision;$('precision-scan').textContent=photoBusy?'분석 중…':'정밀 인식';}
 function render(){
  const admin=view.role==='admin',g=view.game;$('teacher').hidden=!admin;$('student').hidden=admin;$('heading').textContent=admin?'물건에 카드를 숨기세요.':g.teams[0].name+'의 탐색';$('role').textContent=admin?'TEACHER · AR SETUP':'OUR TEAM';$('subtitle').textContent=g.title;
  for(const id of ['back','admin-back','student-back'])$(id).href=backLink();
@@ -118,7 +118,7 @@ function resumeSearch(){
  if(view.game.recognitionVersion>scanVersion){close();void startScan();return;}
  vision.resume();$('camera-state').textContent='탐색 중';$('camera-help').textContent='반사광을 피해 물건 앞면을 비춰주세요.';
 }
-function close(){placeNotice(null);photoBusy=false;clearQuestionImage();scanEpoch++;clearTimeout(findTimer);abort?.abort();abort=null;vision?.stop();vision=null;scanStarting=false;found=-1;detected=null;activeTarget=null;discoverBusy=false;$('question-form').hidden=true;$('reward').hidden=true;$('camera').hidden=true;document.body.classList.remove('scanning');updateButtons();}
+function close(){$('scan-help-detail').hidden=true;$('scan-help-toggle').setAttribute('aria-expanded','false');placeNotice(null);photoBusy=false;clearQuestionImage();scanEpoch++;clearTimeout(findTimer);abort?.abort();abort=null;vision?.stop();vision=null;scanStarting=false;found=-1;detected=null;activeTarget=null;discoverBusy=false;$('question-form').hidden=true;$('reward').hidden=true;$('camera').hidden=true;document.body.classList.remove('scanning');updateButtons();}
 function present(d,index){
  const previous=detected;detected=d;placeNotice(null);if(!d.question)clearQuestionImage();
  if(d.question){activeTarget=d.question.targetId;vision?.clear();$('reward').hidden=true;$('question-text').textContent=d.question.prompt;void questionImage(d.question.image||null);if(previous?.question?.targetId!==d.question.targetId){$('answer-input').value='';mathKeypad.reset();$('answer-feedback').textContent='';}$('camera-state').textContent='수학문제 발견';$('camera-help').textContent='정답을 맞히면 숨겨진 카드가 나타납니다.';}
@@ -126,7 +126,7 @@ function present(d,index){
  else{activeTarget=null;found=-1;vision?.clear();$('reward').hidden=true;
   const kind=d.claimed?'own':d.exhausted?'other':null;placeNotice(kind);
   $('camera-state').textContent=kind?'이 장소는 획득할 수 없어요':'탐색 중';
-  $('camera-help').textContent=kind?'아래 안내를 확인하고 다른 장소를 탐색하세요.':'물건 앞면을 중앙에 비춰주세요. 안 잡히면 ‘멈춰서 정밀 인식’을 눌러주세요.';
+  $('camera-help').textContent=kind?'아래 안내를 확인하고 다른 장소를 탐색하세요.':'물건 앞면을 중앙에 비춰주세요.';
  }
  updateButtons();
 }
@@ -139,10 +139,11 @@ $('place-notice-next').onclick=resumeSearch;
 async function startScan(retries=0){if(scanStarting||vision||!canSearch())return;message('');scanStarting=true;const epoch=++scanEpoch;abort=new AbortController();const signal=abort.signal;$('camera').hidden=false;document.body.classList.add('scanning');$('camera-state').textContent='카메라 준비 중';$('camera-help').textContent='카메라 접근을 허용해주세요.';
  try{void prepareVision().catch(()=>{});const meta=await response(await fetch(api,{headers:headers(),signal}));const b=await loadRecognitionBundle({url:api+'&asset=bundle',headers:headers(),version:meta.bundleVersion,signal,combine:combineTargets,onStage(stage){if(epoch!==scanEpoch)return;const labels={download:'인식 데이터 불러오는 중',combine:'인식 데이터 준비 중 · 처음 한 번만 필요해요',saving:'휴대폰에 인식 데이터 저장 중',cached:'저장된 인식 데이터 사용 · 카메라 준비 중',saved:'인식 데이터 저장 완료 · 카메라 준비 중',session:'카메라 준비 중 · 이 화면에서는 데이터를 재사용해요'};$('camera-help').textContent=labels[stage]||'탐색 준비 중';},onProgress(done,total){if(epoch===scanEpoch)$('camera-help').textContent=`탐색 준비 중 · ${done}/${total}`;}});if(epoch!==scanEpoch)return;scanTargets=meta.targets;scanVersion=meta.version;
  const started=await startVision({container:$('ar-container'),blob:b,bundleVersion:meta.bundleVersion,count:scanTargets.length,signal,onStatus(text){if(epoch===scanEpoch&&!activeTarget)$('camera-help').textContent=text;},onFound(index){if(epoch!==scanEpoch||!canSearch()||activeTarget)return;found=index;activeTarget=scanTargets[index].id;$('camera-state').textContent='물건 인식 완료';$('camera-help').textContent='수학문제를 불러옵니다.';void discover();}});
- if(epoch!==scanEpoch){started.stop();return;}vision=started;$('camera-state').textContent='탐색 중';$('camera-help').textContent='물건 앞면을 중앙에 비춰주세요. 안 잡히면 ‘멈춰서 정밀 인식’을 눌러주세요.';
+ if(epoch!==scanEpoch){started.stop();return;}vision=started;$('camera-state').textContent='탐색 중';$('camera-help').textContent='물건 앞면을 중앙에 비춰주세요.';
 
  }catch(e){if(epoch===scanEpoch){close();if(e.status===409&&retries<2){const retryEpoch=scanEpoch;try{await refresh();if(retryEpoch!==scanEpoch)return;if(canSearch()){await startScan(retries+1);return;}}catch{}}message(e?.message||'카메라를 열지 못했습니다. 브라우저의 카메라 권한을 확인해주세요.');}}finally{if(epoch===scanEpoch){scanStarting=false;render();}}}
 $('scan').onclick=()=>void startScan();
+$('scan-help-toggle').onclick=()=>{const expanded=$('scan-help-detail').hidden;$('scan-help-detail').hidden=!expanded;$('scan-help-toggle').setAttribute('aria-expanded',String(expanded));};
 $('precision-scan').onclick=async()=>{if(photoBusy||!vision||!canSearch()||activeTarget)return;const epoch=scanEpoch,current=vision;photoBusy=true;updateButtons();try{await current.capture();}finally{if(epoch===scanEpoch){photoBusy=false;updateButtons();}}};
 $('resume-scan').onclick=resumeSearch;
 $('claim').onclick=async()=>{

@@ -7,3 +7,12 @@ textarea{display:block;width:100%;font:inherit;font-size:16px;padding:12px;borde
 #ar-container .recognition-video,#ar-container .recognition-freeze{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#09090b}#ar-container .recognition-freeze{z-index:2}#precision-controls{display:grid;grid-template-columns:1fr 1fr;gap:8px}#precision-controls .small{grid-column:1/-1;font-size:12px;margin:4px 0 0}#precision-controls button{font-size:15px;padding:10px 8px}#precision-controls[hidden]{display:none}
 
 #place-notice{border:2px solid #e8bc67;background:#211a15;padding:22px 18px;margin:0 0 14px;text-align:center;border-radius:14px;color:#fff4dd}#place-notice[hidden]{display:none}#place-notice h2{font-size:24px;line-height:1.45;color:#ffe0a3;margin:10px 0}#place-notice p{font-size:17px;line-height:1.65;margin:12px 0 18px}.place-notice-icon{display:inline-grid;place-items:center;width:42px;height:42px;border:2px solid #e8bc67;border-radius:50%;font:bold 28px Georgia;color:#ffe0a3}#place-notice-next{width:100%}
+
+/* Keep the live view clear; expanded question/reward/claim notices keep their full panel. */
+#camera[data-mode="search"] .camera-bottom{left:10px;right:10px;bottom:max(10px,env(safe-area-inset-bottom));padding:10px 12px;border-radius:12px;background:#1d151bdb;box-shadow:0 4px 18px #0005}
+#camera[data-mode="search"] #camera-help{font-size:13px;line-height:1.45;margin:0 0 8px;overflow-wrap:anywhere}
+#camera #precision-controls{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 44px;gap:8px;align-items:start}
+#camera #precision-controls button{min-height:44px;padding:8px 6px;font-size:14px;line-height:1.4;margin:0}
+#camera #precision-controls #scan-help-toggle{font-family:Georgia,serif!important;font-size:20px;padding:6px;background:#30232c}
+#camera #precision-controls #scan-help-detail{grid-column:1/-1;font-size:13px;line-height:1.6;margin:4px 0 0;padding-top:10px;border-top:1px solid #775e68}
+@media(min-width:700px){#camera[data-mode="search"] .camera-bottom{max-width:520px;margin:0 auto}}
