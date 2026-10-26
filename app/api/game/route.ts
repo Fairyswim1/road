@@ -76,13 +76,7 @@ export async function POST(req:Request){try{
   const now=Date.now();if(g.phase==="search"&&g.searchEndsAt&&now>=g.searchEndsAt)finishSearch(g,now);
   let message="저장했어요.";
   if(b.action==="practice"){
-   if(!admin&&b.teamId!==actor!.id)fail("우리 모둠 연습판만 바꿀 수 있어요.",403);
-   const t=admin?g.teams.find(t=>t.id===b.teamId):actor;if(!t)fail("모둠을 찾을 수 없어요.");
-   if(g.phase==="setup")fail("수색 시작 후 연습할 수 있어요.",409);
-   if(b.boardVersion!==(t.practiceVersion||0))fail("다른 기기에서 연습판을 바꿨어요. 최신 판을 확인하고 다시 놓아주세요.",409);
-   if(!Array.isArray(b.board)||b.board.length!==36||b.board.some((id:unknown)=>id!==null&&(typeof id!=="string"||!g.cards.some(c=>c.id===id&&c.owner===t.id))))fail("우리 모둠이 획득한 카드만 연습에 사용할 수 있어요.");
-   const ids=b.board.filter(Boolean);if(new Set(ids).size!==ids.length)fail("카드는 한 번씩만 사용할 수 있어요.");
-   t.practiceBoard=b.board;t.practiceVersion=(t.practiceVersion||0)+1;message="연습판을 저장했어요.";
+   fail("연습판이 개인별 저장으로 바뀌었어요. 새로고침한 뒤 나의 연습판을 열어주세요.",409);
   }else if(b.action==="claim"){
    if(!actor)fail("모둠 참여 화면에서 획득해주세요.",403);
    if(g.searchPausedMs!=null)fail("수색이 일시 정지됐어요. 선생님이 재개할 때까지 기다려주세요.",409);

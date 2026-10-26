@@ -20,7 +20,7 @@ assert.equal((await game('submit',{teamId:b.id,incomplete:true})).status,200);
 assert.equal((await game('solve',{teamId:a.id})).status,200);
 const own=(await read()).game.cards.find(x=>x.owner===a.id),board=Array(36).fill(null);board[0]=own.id;
 assert.equal((await game('board',{teamId:a.id,board,boardVersion:0})).status,200);
-assert.equal((await game('practice',{teamId:a.id,board,boardVersion:0},a.token)).status,200);
+assert.equal((await game('practice',{teamId:a.id,board,boardVersion:0},a.token)).status,409);
 const before=await read();
 assert.equal((await game('search_reopen',{minutes:5,searchTimerVersion:0},a.token)).status,403);
 for(const minutes of [0,121,1.5,'5'])assert.equal((await game('search_reopen',{minutes,searchTimerVersion:0})).status,400);
@@ -28,7 +28,7 @@ assert.equal((await game('search_reopen',{minutes:5,searchTimerVersion:99})).sta
 const race=await Promise.all([1,2].map(()=>game('search_reopen',{minutes:5,searchTimerVersion:0})));assert.deepEqual(race.map(x=>x.status).sort(),[200,409]);
 const opened=await read(),t=opened.game.teams[0];assert.equal(opened.game.phase,'search');assert.equal(opened.game.searchPausedMs,null);assert.equal(opened.game.searchTimerVersion,1);
 assert.ok(opened.game.searchEndsAt-opened.serverNow>295000&&opened.game.searchEndsAt-opened.serverNow<=300000);
-assert.equal(t.status,'searching');assert.equal(t.startedAt,null);assert.ok(t.usedMs>before.game.teams[0].usedMs);assert.deepEqual(t.board,board);assert.deepEqual(t.practiceBoard,board);assert.equal(t.boardVersion,1);assert.equal(t.practiceVersion,1);
+assert.equal(t.status,'searching');assert.equal(t.startedAt,null);assert.ok(t.usedMs>before.game.teams[0].usedMs);assert.deepEqual(t.board,board);assert.equal(t.practiceBoard,undefined);assert.equal(t.boardVersion,1);assert.equal(t.practiceVersion,undefined);
 assert.deepEqual(opened.game.teams[1],before.game.teams[1]);assert.equal(opened.game.teams[2].status,'searching');
 assert.deepEqual(opened.game.cards,before.game.cards);assert.deepEqual(opened.game.ar,before.game.ar);
 assert.equal((await game('board',{teamId:a.id,board,boardVersion:1})).status,400);

@@ -3,7 +3,7 @@ import {useEffect,useRef,useState,type PointerEvent as ReactPointerEvent,type Mo
 
 export type CardDrop = number|"inventory"|null;
 type Gesture={id:string;pointer:number;startX:number;startY:number;x:number;y:number;active:boolean;version:number;source:HTMLElement};
-export function useCardDrag(enabled:boolean,version:number,onDrop:(id:string,target:Exclude<CardDrop,null>,version:number)=>void){
+export function useCardDrag(enabled:boolean,version:number,onDrop:(id:string,target:Exclude<CardDrop,null>,version:number)=>void,touchDrag=false){
  const root=useRef<HTMLDivElement>(null),gesture=useRef<Gesture|null>(null),frame=useRef(0),ignoreClickUntil=useRef(0);
  const callback=useRef(onDrop);callback.current=onDrop;
  const [drag,setDrag]=useState<{id:string;x:number;y:number;target:CardDrop}|null>(null);
@@ -23,7 +23,7 @@ export function useCardDrag(enabled:boolean,version:number,onDrop:(id:string,tar
   show(g);frame.current=requestAnimationFrame(scroll);
  }
  function start(e:ReactPointerEvent<HTMLElement>,id:string){
-  if(!enabled||!e.isPrimary||e.button!==0||gesture.current)return;
+  if((e.pointerType==="touch"&&!touchDrag)||!enabled||!e.isPrimary||e.button!==0||gesture.current)return;
   ignoreClickUntil.current=0;
   gesture.current={id,pointer:e.pointerId,startX:e.clientX,startY:e.clientY,x:e.clientX,y:e.clientY,active:false,version,source:e.currentTarget};
   e.currentTarget.setPointerCapture(e.pointerId);

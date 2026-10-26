@@ -20,6 +20,6 @@ assert.equal((await call('board',{teamId:t.id,board:empty(),boardVersion:1})).st
 board=dropCard(board,ids[1],1);assert.equal((await call('board',{teamId:t.id,board,boardVersion:2})).status,200);
 board=dropCard(board,ids[1],'inventory');assert.equal((await call('board',{teamId:t.id,board,boardVersion:3})).status,200);
 await call('submit',{teamId:t.id,incomplete:true});assert.equal((await call('board',{teamId:t.id,board:dropCard(empty(),ids[0],0),boardVersion:4})).status,409);
-assert.equal((await call('practice',{teamId:t.id,board:dropCard(empty(),ids[0],0),boardVersion:0},t.token)).status,200);
+assert.equal((await call('practice',{teamId:t.id,board:dropCard(empty(),ids[0],0),boardVersion:0},t.token)).status,409);
 fs.writeFileSync('.sites-runtime/drag-ui.json',JSON.stringify({id,adminToken,token:t.token,ids}));
-console.log('PASS card placement, movement, replacement, inventory return, immutable input, official board save and stale-version rejection, submitted-board lock, practice after submission');
+console.log('PASS card placement, movement, replacement, inventory return, immutable input, official board save and stale-version rejection, submitted-board lock, legacy shared-practice write rejected');

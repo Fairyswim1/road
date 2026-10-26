@@ -42,3 +42,10 @@ body{line-height:1.75}input,textarea,select{line-height:1.6}h1,h2,h3{word-break:
 button.lesson-delete{border:1px solid #cf737f!important;background:#4a222c!important;color:#ffe2e5!important}button.lesson-delete:hover:not(:disabled){background:#692c3a!important;border-color:#f2a5ae!important}
 
 .board-cell{touch-action:manipulation;user-select:none;-webkit-user-select:none}
+
+.card-touch-tools{flex-shrink:0;padding:6px 0;border-bottom:1px solid #675153}
+.card-touch-tools button{min-height:40px;font-size:.78rem}
+.card-touch-tools button[aria-pressed="true"]{background:#762e40;color:#fff0da;border-color:#e7a494}
+.card-touch-tools p{font-size:.75rem;line-height:1.5;color:#dac6ba;margin:7px 0}
+.board-inventory .inventory{touch-action:pan-y pinch-zoom;-webkit-overflow-scrolling:touch}
+@media(max-width:699px){.board-layout>.board-inventory{height:clamp(320px,50dvh,420px)}.board-inventory .inventory{overscroll-behavior-y:auto}.board-inventory .inventory>button:hover{transform:none}}
