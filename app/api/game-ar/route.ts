@@ -29,7 +29,8 @@ async function problemIdentity(targets:ArSetup['targets'],requested:unknown,prep
 async function discovered(a:Awaited<ReturnType<typeof auth>>,targetId:string){
  const target=a.ar.targets.find(t=>t.id===targetId),card=target?a.g.cards.find(c=>target.cards.includes(c.id)&&!c.owner):undefined;
  if(target&&hasClaimedAtTarget(a.g,target,a.team!.id))return {card:null,code:null,claimed:true};
- if(!target||!card)return {card:null,code:null};
+ if(!target)return {card:null,code:null};
+ if(!card)return {card:null,code:null,exhausted:true};
  if(!target.solvedBy?.includes(a.team!.id))return {question:{targetId:target.id,prompt:target.question,image:target.problemImage?`/api/game-ar?id=${a.g.id}&asset=problem&target=${target.id}&ticket=${await imageTicket(target.problemImage,a.team!.token!)}`:null},card:null,code:null};
  return {card:{id:card.id,value:card.value,shape:card.shape},code:card.secret};
 }
@@ -43,6 +44,7 @@ async function auth(req:Request){
  if(g.mode!=="ar"||!g.ar)fail("AR 수업이 아니에요.");
  return {row,g,ar:g.ar,admin,team};
 }
+function canAppend(g:Game){return g.phase==="search"&&(g.searchPausedMs!=null||!!g.searchEndsAt&&g.searchEndsAt>Date.now());}
 function searching(a:Awaited<ReturnType<typeof auth>>){if(a.g.searchPausedMs!=null)fail("수색이 일시 정지됐어요. 선생님이 재개할 때까지 기다려주세요.",409);if(a.g.phase!=="search"||!a.g.searchEndsAt||a.g.searchEndsAt<=Date.now()||(!a.admin&&a.team?.status!=="searching"))fail("수색이 종료됐어요. 보관함으로 돌아가주세요.",409);}
 async function save(a:Awaited<ReturnType<typeof auth>>,next:ArSetup){
  a.g.ar=next;
@@ -72,8 +74,8 @@ export async function GET(req:Request){try{
  if(asset==="bundle"&&o.customMetadata?.arFormat==="targets-v1"){
   const manifest=await o.json<{parts:string[]}>();
   const part=url.searchParams.get("part");
-  // Only the part count leaves the server. Storage keys, labels and cards stay private.
-  if(part===null)return json({format:"targets-v1",parts:manifest.parts.length});
+  // Only counts and opaque immutable part IDs leave the server. Storage keys, labels and cards stay private.
+  if(part===null)return json({format:"targets-v1",parts:manifest.parts.length,partVersions:await Promise.all(manifest.parts.map(p=>hash(new TextEncoder().encode(p))))});
   if(!/^\d+$/.test(part)||!Number.isSafeInteger(Number(part))||Number(part)>=manifest.parts.length)fail("인식 데이터를 찾을 수 없어요.",404);
   o=await env.BUCKET!.get(manifest.parts[Number(part)]);if(!o)fail("인식 데이터를 찾을 수 없어요.",404);
  }
@@ -95,7 +97,7 @@ export async function POST(req:Request){try{
    const current=retry?await auth(req):a;searching(current);if(!current.team||current.admin)fail("모둠 링크로 접속하세요.",403);
    const target=current.ar.targets.find(t=>t.id===b.targetId);
    if(target&&hasClaimedAtTarget(current.g,target,current.team.id))return json(await discovered(current,target.id));
-   if(!target||!current.g.cards.some(c=>target.cards.includes(c.id)&&!c.owner))return json({card:null,code:null});
+   if(!target||!current.g.cards.some(c=>target.cards.includes(c.id)&&!c.owner))return json(await discovered(current,b.targetId));
    if(target.solvedBy?.includes(current.team.id))return json(await discovered(current,target.id));
    if(!target.answers.some(x=>answersEquivalent(b.answer,x)))return json({correct:false,message:"다시 생각해보세요. 분수는 /, 루트는 √( )로 입력할 수 있어요."});
    target.solvedBy=[...(target.solvedBy||[]),current.team.id];
@@ -105,7 +107,7 @@ export async function POST(req:Request){try{
   fail("잠시 후 답을 다시 제출해주세요.",409);
  }
  if(!a.admin)fail("교사만 사용할 수 있어요.",403);
- if(a.g.phase!=="setup")fail("수색 시작 전만 배치를 바꿀 수 있어요.",409);
+ if(a.g.phase!=="setup"&&!(action==="upload"&&canAppend(a.g)))fail("수색 중에는 새 장소만 추가할 수 있어요. 기존 배치와 문제는 수색 시작 전에 수정해주세요.",409);
  if(!env.BUCKET)fail("사진 저장소에 연결하지 못했어요.",503);
  if(action==="publish"&&req.headers.get("content-type")?.startsWith("application/json")){
   const raw=await req.text();if(raw.length>300)fail("잘못된 저장 요청입니다.");const b=JSON.parse(raw);
@@ -160,7 +162,26 @@ export async function POST(req:Request){try{
   if(a.ar.targets.some(t=>t.photoHash===photoHash))fail("이미 등록한 사진입니다. 서로 다른 물건을 사용해주세요.");
   await env.BUCKET.put(`${key}/photo`,photoBytes,{httpMetadata:{contentType:"image/jpeg"}});await env.BUCKET.put(`${key}/target`,await target.arrayBuffer());
   if(prepared)await env.BUCKET.put(`${key}/problem`,prepared.bytes,{httpMetadata:{contentType:prepared.type}});
-  try{await save(a,{version:a.ar.version+1,ready:false,bundle:null,targets:[...a.ar.targets,{id:secret(),label:locationLabel,cards:ids,key,photoHash,...task,...identity,problemImage:prepared?`${key}/problem`:undefined,solvedBy:[]}]});}catch(e){await env.BUCKET.delete([`${key}/photo`,`${key}/target`,`${key}/problem`]);throw e;}
+  const added={id:secret(),label:locationLabel,cards:ids,key,photoHash,...task,...identity,problemImage:prepared?`${key}/problem`:undefined,solvedBy:[]};
+  let manifestKey:string|undefined;
+  try{
+   if(a.g.phase==="search"){
+    manifestKey=`game-ar/${a.g.id}/manifest-${secret()}`;
+    await env.BUCKET.put(manifestKey,JSON.stringify({parts:[...a.ar.targets,added].map(t=>`${t.key}/target`)}),{customMetadata:{arFormat:"targets-v1"}});
+   }
+   // Claims and answers can arrive while files upload. Reload before CAS and keep
+   // their progress; reject competing placement changes rather than overwriting.
+   let saved=false;
+   for(let retry=0;retry<6;retry++){
+    const current=await auth(req);
+    if(current.g.phase!==a.g.phase||!(current.g.phase==="setup"||canAppend(current.g)))fail("수업 단계가 변경됐어요. 화면을 새로고침해주세요.",409);
+    if(current.ar.version!==a.ar.version)fail("배치가 변경됐어요. 새로고침 후 다시 시도해주세요.",409);
+    if(ids.some((id:string)=>current.g.cards.find(c=>c.id===id)?.owner))fail("이미 획득한 카드는 배치할 수 없어요.",409);
+    try{await save(current,{...current.ar,version:current.ar.version+1,ready:!!manifestKey,bundle:manifestKey||null,targets:[...current.ar.targets,added]});saved=true;break;}
+    catch(e){if(!(e instanceof ApiError)||e.status!==409)throw e;}
+   }
+   if(!saved)fail("다른 모둠의 기록을 저장 중입니다. 잠시 후 다시 등록해주세요.",409);
+  }catch(e){await env.BUCKET.delete([`${key}/photo`,`${key}/target`,`${key}/problem`,...(manifestKey?[manifestKey]:[])]);throw e;}
  }
  return json({ok:true});
  }catch(e){return error(e);}}

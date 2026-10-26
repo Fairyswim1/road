@@ -17,7 +17,7 @@ function project(row:Row,g:Game,token:string,admin:boolean){
  if(!admin&&!team)fail("참여 링크가 올바르지 않아요. 관리자에게 모둠 링크를 받아주세요.",403);
  const now=Date.now();if(g.phase==="search"&&g.searchEndsAt&&now>=g.searchEndsAt)finishSearch(g,now);
  const {ar:_ar,...safe}=g;
- return {game:admin?g:{...safe,cards:g.cards.filter(c=>c.owner===team!.id).map(({secret:_,...c})=>c),teams:g.teams.filter(t=>t.id===team!.id).map(({token:_,...t})=>t),events:[]},role:admin?"admin":"team",teamId:team?.id||null,serverNow:now,revision:row.revision};
+ return {game:admin?g:{...safe,recognitionVersion:g.ar?.version,cards:g.cards.filter(c=>c.owner===team!.id).map(({secret:_,...c})=>c),teams:g.teams.filter(t=>t.id===team!.id).map(({token:_,...t})=>t),events:[]},role:admin?"admin":"team",teamId:team?.id||null,serverNow:now,revision:row.revision};
 }
 async function getRow(id:string){if(!/^[a-f0-9]{32}$/.test(id))fail("수업 링크가 올바르지 않아요.",404);const r=await database().prepare("SELECT * FROM games WHERE id = ?").bind(id).first<Row>();if(!r)fail("수업을 찾을 수 없어요.",404);return r;}
 function bearer(r:Request){return r.headers.get("authorization")?.replace(/^Bearer /,"")||"";}

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 const entries=new Map();let quota=false,blocked=false;
 globalThis.caches={async open(){if(blocked)throw Error('storage disabled');return {async match(k){return entries.get(k)?.clone();},async put(k,r){if(quota)throw Error('quota');entries.set(k,r.clone());},async keys(){return [...entries.keys()].map(url=>new Request(url));},async delete(r){return entries.delete(typeof r==='string'?r:r.url);}};}};
-let requests=[],active=0,peak=0,legacy=false,delays=false;
+let requests=[],active=0,peak=0,legacy=false,delays=false,stableParts=0;
 globalThis.fetch=async(url,{signal}={})=>{
  signal?.throwIfAborted();requests.push(url);const u=new URL(url),n=u.searchParams.get('part');
- if(n===null)return legacy?new Response(new Blob(['legacy'])):Response.json({format:'targets-v1',parts:8});
+ if(n===null)return legacy?new Response(new Blob(['legacy'])):Response.json({format:'targets-v1',parts:stableParts||8,...(stableParts?{partVersions:Array.from({length:stableParts},(_,i)=>String(i).padStart(64,'0'))}:{})});
  active++;peak=Math.max(peak,active);
  try{await new Promise((resolve,reject)=>{const abort=()=>{clearTimeout(timer);reject(signal.reason);};const timer=setTimeout(()=>{signal?.removeEventListener('abort',abort);resolve();},delays?(Number(n)===0?1:80):(8-Number(n))*3);signal?.addEventListener('abort',abort,{once:true});});return new Response(new Blob([n]));}finally{active--;}
 };
@@ -29,3 +29,12 @@ blocked=true;load=await fresh();await load(base);blocked=false;
 entries.clear();legacy=true;load=await fresh();requests=[];assert.equal(await (await load(base)).text(),'legacy');assert.equal(requests.length,1);load=await fresh();requests=[];assert.equal(await (await load(base)).text(),'legacy');assert.equal(requests.length,0);
 const cancelled=new AbortController();cancelled.abort();await assert.rejects(()=>load({...base,signal:cancelled.signal}),{name:'AbortError'});
 console.log('PASS ordered four-way transfer, memory/disk reuse without download or merge, revision/team isolation, resumable parts, quota/blocked-storage fallback, legacy cache, cancellation');
+
+// Appending a live location downloads only its new immutable part.
+entries.clear();legacy=false;stableParts=3;load=await fresh();requests=[];
+await load({...base,version:'c'.repeat(64)});assert.equal(requests.length,4);
+stableParts=4;load=await fresh();requests=[];
+assert.equal(await (await load({...base,version:'d'.repeat(64)})).text(),'0123');
+assert.equal(requests.length,2);assert.ok(requests[1].includes('&part=3'));
+assert.equal(entries.size,5);
+console.log('PASS live append reuses existing recognition parts, downloads only new part');
