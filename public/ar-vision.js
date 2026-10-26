@@ -1,4 +1,4 @@
-import {tuneCamera,widenRecognition} from './ar-recognition.js';
+import {drawRecognitionFrame,serialMatcher,openCamera} from './ar-recognition.js';
 const CDN='https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/';
 export async function photoFile(file){
  if(!file||file.size>25000000)throw new Error('25MB 이하 사진을 골라주세요.');
@@ -11,24 +11,57 @@ export async function compilePhoto(blob,onProgress){
 }
 export async function combineTargets(buffers){const {Compiler}=await import(CDN+'mindar-image.prod.js');const compiler=new Compiler(),data=[];for(const b of buffers){const imported=compiler.importData(b);if(imported.length!==1)throw new Error('등록 데이터를 확인해주세요.');data.push(...imported);}compiler.data=data;return new Blob([compiler.exportData()]);}
 let enginePromise;
-export function prepareVision(){return enginePromise??=(Promise.all([import(CDN+'mindar-image-three.prod.js'),import('three')]).catch(e=>{enginePromise=null;throw e;}));}
-export async function startVision({container,blob,count,onFound,onLost,signal}){
- const cardArt=new Image();cardArt.src="/art/card-slate.webp";await Promise.allSettled([cardArt.decode(),document.fonts.load('800 132px "Road Myeongjo"')]);
- const [{MindARThree},THREE]=await prepareVision();
- if(signal.aborted)throw new Error('탐색이 취소됐어요.');
- const url=URL.createObjectURL(blob),ar=new MindARThree({container,imageTargetSrc:url,maxTrack:1,uiLoading:'no',uiScanning:'no',uiError:'no',warmupTolerance:3,missTolerance:8});
- // Configure the stream before MindAR sizes its GPU inputs and camera projection.
- const startVideo=ar._startVideo.bind(ar);
- ar._startVideo=async()=>{await startVideo();await tuneCamera(ar.video,signal);};
- ar.renderer.setPixelRatio(Math.min(devicePixelRatio,2));
- const anchors=Array.from({length:count},(_,index)=>{const a=ar.addAnchor(index);a.onTargetFound=()=>onFound(index);a.onTargetLost=()=>onLost(index);return a;});
- let mesh=null,disposed=false;
- function clear(){if(mesh){mesh.parent?.remove(mesh);mesh.geometry.dispose();mesh.material.map.dispose();mesh.material.dispose();mesh=null;}}
- function stop(){disposed=true;clear();ar.renderer.setAnimationLoop(null);try{ar.controller?.stopProcessVideo();}catch{}ar.video?.srcObject?.getTracks().forEach(t=>t.stop());ar.video?.remove();ar.renderer.dispose();URL.revokeObjectURL(url);container.replaceChildren();}
- signal.addEventListener('abort',stop,{once:true});
- let timer;try{await Promise.race([ar.start().then(()=>{if(disposed)stop();}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('카메라를 준비하지 못했습니다. Safari 카메라 권한을 확인하고 다시 시도하세요.')),60000);})]);}catch(e){stop();throw e;}finally{clearTimeout(timer);}
- if(disposed)throw new Error('탐색이 취소됐어요.');
- widenRecognition(ar.controller);
- ar.renderer.setAnimationLoop(()=>ar.renderer.render(ar.scene,ar.camera));
- return {stop,clear,show(index,card){clear();if(disposed||!anchors[index])return;const canvas=document.createElement('canvas');canvas.width=512;canvas.height=512;const c=canvas.getContext('2d');const fill=c.createLinearGradient(0,0,512,512);fill.addColorStop(0,'#242123');fill.addColorStop(1,'#09090b');c.fillStyle=fill;c.fillRect(0,0,512,512);if(cardArt.complete&&cardArt.naturalWidth)c.drawImage(cardArt,0,0,512,512);c.strokeStyle='#96908a';c.lineWidth=4;c.strokeRect(3,3,506,506);const ports={N:[256,0],S:[256,512],E:[512,256],W:[0,256]};c.strokeStyle='#e66369';c.lineWidth=17;c.lineCap='butt';for(const d of card.shape){c.beginPath();c.moveTo(256,256);c.lineTo(...ports[d]);c.stroke();}c.fillStyle='#fffaf2';c.font='800 132px \"Road Myeongjo\",Georgia,serif';c.textAlign='right';c.textBaseline='top';c.shadowColor='#000';c.shadowBlur=8;c.fillText(card.value,455,57);const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;mesh=new THREE.Mesh(new THREE.PlaneGeometry(.65,.65),new THREE.MeshBasicMaterial({map:texture,transparent:true,side:THREE.DoubleSide}));mesh.position.z=.04;anchors[index].group.add(mesh);}};
+export function prepareVision(){return enginePromise??=(import(CDN+'mindar-image.prod.js').catch(e=>{enginePromise=null;throw e;}));}
+let cachedMatcher=null;
+export async function createImageMatcher(blob,key){
+ if(cachedMatcher?.key===key)return cachedMatcher.promise;
+ const previous=cachedMatcher;
+ const promise=(async()=>{
+  if(previous){try{const old=await previous.promise;await old.idle();old.dispose();}catch{}}
+  const {Controller}=await prepareVision();
+  const controller=new Controller({inputWidth:1024,inputHeight:1024,maxTrack:1});
+  const {dimensions}=controller.addImageTargetsFromBuffer(await blob.arrayBuffer());
+  const indexes=dimensions.map((_,i)=>i);let active=Promise.resolve();
+  const run=serialMatcher(async canvas=>{const {featurePoints}=await controller.detect(canvas);if(featurePoints.length<12)return -1;let timeout;try{const match=await Promise.race([controller._workerMatch(featurePoints,indexes),new Promise((_,reject)=>{timeout=setTimeout(()=>{controller.worker?.terminate();if(cachedMatcher?.key===key)cachedMatcher=null;reject(new Error('인식 응답 시간이 초과됐어요. 카메라를 다시 열어주세요.'));},20000);})]);return match.targetIndex;}finally{clearTimeout(timeout);}});
+  return {match(canvas,signal){const p=run(canvas,signal);active=p.catch(()=>{});return p;},idle:()=>active,dispose(){controller.dispose();controller.worker?.terminate();for(const tensor of Object.values(controller.cropDetector.detector.tensorCaches||{}))tensor?.dispose?.();}};
+ })();
+ cachedMatcher={key,promise};try{return await promise;}catch(e){if(cachedMatcher?.promise===promise)cachedMatcher=null;throw e;}
+}
+export async function startVision({container,blob,bundleVersion,count,onFound,onStatus=()=>{},signal,deviceId}){
+ const video=document.createElement('video');video.autoplay=true;video.muted=true;video.playsInline=true;video.className='recognition-video';
+ const frozen=document.createElement('canvas');frozen.className='recognition-freeze';frozen.hidden=true;container.replaceChildren(video,frozen);
+ const local=new AbortController();let stopped=false,paused=false,timer=null,working=false,attempt=0,matcher,stream;
+ const canvas=document.createElement('canvas');
+ function stop(){if(stopped)return;stopped=true;local.abort();clearTimeout(timer);stream?.getTracks().forEach(t=>t.stop());video.srcObject=null;container.replaceChildren();signal.removeEventListener('abort',stop);}
+ signal.addEventListener('abort',stop,{once:true});if(signal.aborted)stop();
+ function resume(){if(stopped)return;paused=false;frozen.hidden=true;clearTimeout(timer);timer=setTimeout(tick,180);}
+ function pause(){paused=true;clearTimeout(timer);}
+ async function recognize(source,mode,contrast=false){drawRecognitionFrame(source,canvas,mode,contrast);return matcher.match(canvas,local.signal);}
+ async function tick(){
+  if(stopped||paused)return;if(working){timer=setTimeout(tick,180);return;}
+  if(video.readyState<2){timer=setTimeout(tick,180);return;}working=true;
+  try{const index=await recognize(video,attempt++%2===0?'center':'whole');if(stopped||paused)return;if(index>=0&&index<count){pause();onFound(index);}else if(attempt%8===0)onStatus('물건 앞면을 중앙에 비춰주세요. 반사광은 피하고, 안 잡히면 아래 정밀 인식을 눌러주세요.');}
+  catch(e){pause();if(!stopped)onStatus('인식을 완료하지 못했어요. 카메라를 닫고 다시 열어주세요.');}
+  finally{working=false;if(!paused&&!stopped)timer=setTimeout(tick,180);}
+ }
+ async function capture(){
+  if(stopped||video.readyState<2)return false;pause();while(working&&!stopped)await new Promise(r=>setTimeout(r,40));if(stopped)return false;working=true;
+  frozen.width=video.videoWidth;frozen.height=video.videoHeight;frozen.getContext('2d').drawImage(video,0,0);frozen.hidden=false;
+  try{
+   const variants=[['center',false],['whole',false],['close',false],['center',true],['whole',true],['close',true]];
+   for(let i=0;i<variants.length;i++){
+    if(stopped)return false;onStatus(`사진 정밀 인식 중 · ${i+1}/${variants.length} · 잠시 기다려주세요`);
+    const index=await recognize(frozen,...variants[i]);if(stopped)return false;
+    if(index>=0&&index<count){onFound(index);return true;}
+   }
+   onStatus('이 사진에서는 찾지 못했어요. 반사광을 피하고 등록된 앞면이 크게 보이게 다시 비춰주세요.');return false;
+  }catch(e){if(!stopped)onStatus('사진 인식을 완료하지 못했어요. 카메라를 다시 열어주세요.');return false;}
+  finally{working=false;}
+ }
+ try{
+  stream=await openCamera(video,local.signal,deviceId);
+  onStatus('카메라 연결 완료 · 인식 준비 중');matcher=await createImageMatcher(blob,bundleVersion||blob);
+  if(stopped)throw new DOMException('취소됨','AbortError');timer=setTimeout(tick,180);
+ }catch(e){stop();throw e;}
+ return {stop,pause,resume,capture,isWorking:()=>working,clear(){},show(){}};
 }

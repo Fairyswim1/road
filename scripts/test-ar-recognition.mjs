@@ -1,23 +1,14 @@
 import assert from 'node:assert/strict';
-import {scanPositions,widenRecognition,tuneCamera} from '../public/ar-recognition.js';
-for(const [w,h,size] of [[640,480,256],[1280,720,256],[720,1280,256],[1920,1080,512]]){
- const points=scanPositions(w,h,size);
- assert.deepEqual(points[0],[Math.floor((w-size)/2),Math.floor((h-size)/2)]);
- for(const [x,y] of points){assert.ok(x>=0&&y>=0&&x+size<=w&&y+size<=h);}
- for(let x=0;x<w;x+=16)for(let y=0;y<h;y+=16)assert.ok(points.some(([a,b])=>x>=a&&x<a+size&&y>=b&&y<b+size),`missed ${x},${y}`);
- let calls=0;const cropDetector={width:w,height:h,cropSize:size,detectMoving(){},_detect(input,x,y){calls++;return [x,y];}};
- assert.equal(widenRecognition({cropDetector}),true);
- for(const point of points)assert.deepEqual(cropDetector.detectMoving('frame'),point);
- assert.deepEqual(cropDetector.detectMoving('frame'),points[0]);assert.equal(calls,points.length+1);
-}
-assert.equal(widenRecognition({}),false);assert.deepEqual(scanPositions(100,100,256),[]);
-function camera({reject=false,abort=false,width=640,height=480}={}){
- const controller=new AbortController(),calls=[],attrs={},settings={width,height};let stopped=0;
- const video={videoWidth:width,videoHeight:height,setAttribute:(k,v)=>attrs[k]=v};
- const track={getSettings:()=>settings,getCapabilities:()=>({focusMode:['continuous']}),getConstraints:()=>({width:{ideal:1280},height:{ideal:720}}),stop:()=>stopped++,async applyConstraints(c){calls.push(c);if(abort)controller.abort();if(reject)throw Error('unsupported');if(c.width){settings.width=1280;settings.height=720;video.videoWidth=1280;video.videoHeight=720;}}};
- video.srcObject={getVideoTracks:()=>[track],getTracks:()=>[track]};return {video,controller,calls,attrs,stopped:()=>stopped};
-}
-const hd=camera();await tuneCamera(hd.video,hd.controller.signal);assert.equal(hd.calls[0].width.ideal,1280);assert.equal(hd.attrs.width,1280);assert.equal(hd.calls[1].width.ideal,1280);
-const fallback=camera({reject:true});await tuneCamera(fallback.video,fallback.controller.signal);assert.equal(fallback.attrs.width,640);
-const cancelled=camera({abort:true});await assert.rejects(tuneCamera(cancelled.video,cancelled.controller.signal),/취소/);assert.equal(cancelled.stopped(),1);
-console.log('PASS landscape/portrait full-frame coverage, one crop per frame, camera HD/focus, unsupported fallback and cancellation cleanup');
+import {frameRect,normalizeContrast,serialMatcher,openCamera} from '../public/ar-recognition.js';
+for(const [w,h] of [[640,480],[720,1280],[1920,1080]])for(const mode of ['center','whole','close']){const r=frameRect(w,h,mode);assert.ok(r.x>=0&&r.y>=0&&r.x+r.width<=w&&r.y+r.height<=h);if(mode==='whole')assert.deepEqual(r,{x:0,y:0,width:w,height:h});}
+assert.throws(()=>frameRect(0,0));
+const blank=new Uint8ClampedArray([255,255,255,255,255,255,255,255]);normalizeContrast(blank);assert.deepEqual([...blank],[255,255,255,255,255,255,255,255]);
+const gray=new Uint8ClampedArray([80,80,80,255,180,180,180,255]);normalizeContrast(gray);assert.ok(gray[4]-gray[0]>100);assert.equal(gray[3],255);
+let active=0,max=0;const seen=[];
+const run=serialMatcher(async x=>{active++;max=Math.max(max,active);await new Promise(r=>setTimeout(r,15));seen.push(x);active--;return x;});
+const a=new AbortController(),b=new AbortController();const first=run(1,a.signal),second=run(2,b.signal);b.abort();assert.deepEqual(await Promise.allSettled([first,second]),[{status:'fulfilled',value:1},{status:'rejected',reason:await second.catch(e=>e)}]);assert.deepEqual(seen,[1]);assert.equal(max,1);
+const c=new AbortController();const pending=run(3,c.signal);setTimeout(()=>c.abort(),3);await assert.rejects(pending,{name:'AbortError'});assert.equal(await run(4,a.signal),4);
+let requested,stops=0;const abort=new AbortController();
+Object.defineProperty(globalThis,'navigator',{configurable:true,value:{mediaDevices:{async getUserMedia(options){requested=options;abort.abort();return {getTracks:()=>[{stop:()=>stops++}]};}}}});
+await assert.rejects(openCamera({},abort.signal),{name:'AbortError'});assert.equal(stops,1);assert.equal(requested.video.width.ideal,640);assert.equal(requested.video.facingMode.ideal,'environment');
+console.log('PASS frame coverage, bounded contrast, serialized matches, queued/in-flight cancellation, rear-camera constraints and late-stream cleanup');

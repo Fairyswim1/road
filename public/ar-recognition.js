@@ -1,34 +1,36 @@
-// Adapter for the pinned MindAR 1.2.5 engine. One crop per frame, as before.
-export function scanPositions(width,height,size){
- if(![width,height,size].every(Number.isFinite)||size<=0||size>Math.min(width,height))return [];
- const axis=length=>{const end=length-size,n=Math.max(1,Math.ceil(end/(size*.75)));return Array.from({length:n+1},(_,i)=>Math.round(end*i/n));};
- const cx=Math.floor((width-size)/2),cy=Math.floor((height-size)/2);
- const positions=axis(height).flatMap(y=>axis(width).map(x=>[x,y]));
- positions.sort((a,b)=>Math.hypot(a[0]-cx,a[1]-cy)-Math.hypot(b[0]-cx,b[1]-cy));
- return [[cx,cy],...positions.filter(([x,y],i,all)=>(x!==cx||y!==cy)&&all.findIndex(p=>p[0]===x&&p[1]===y)===i)];
+// Frame geometry for recognition without continuous 3D tracking.
+export function frameRect(width,height,mode='center'){
+ if(!(width>0&&height>0))throw new Error('카메라 영상을 기다려주세요.');
+ if(mode==='whole')return {x:0,y:0,width,height};
+ const size=Math.min(width,height)/(mode==='close'?1.5:1);
+ return {x:(width-size)/2,y:(height-size)/2,width:size,height:size};
 }
-export function widenRecognition(controller){
- const detector=controller?.cropDetector;
- if(!detector||typeof detector._detect!=='function'||typeof detector.detectMoving!=='function')return false;
- const positions=scanPositions(detector.width,detector.height,detector.cropSize);
- if(!positions.length)return false;
- let index=0;
- detector.detectMoving=function(input){const [x,y]=positions[index];index=(index+1)%positions.length;return this._detect(input,x,y);};
- return true;
+export function drawRecognitionFrame(source,canvas,mode='center',contrast=false){
+ const width=source.videoWidth||source.naturalWidth||source.width,height=source.videoHeight||source.naturalHeight||source.height;
+ const r=frameRect(width,height,mode),ctx=canvas.getContext('2d',{willReadFrequently:true});
+ // MindAR's 1024x1024 input uses its native 512px center detector. Fill that entire crop.
+ canvas.width=1024;canvas.height=1024;ctx.fillStyle='#777';ctx.fillRect(0,0,1024,1024);
+ const scale=Math.min(512/r.width,512/r.height),w=r.width*scale,h=r.height*scale;
+ ctx.drawImage(source,r.x,r.y,r.width,r.height,512-w/2,512-h/2,w,h);
+ if(contrast){const pixels=ctx.getImageData(256,256,512,512);normalizeContrast(pixels.data);ctx.putImageData(pixels,256,256);}
+ return canvas;
 }
-export async function tuneCamera(video,signal){
- const track=video?.srcObject?.getVideoTracks?.()[0];
- const check=()=>{if(signal.aborted){video?.srcObject?.getTracks().forEach(t=>t.stop());throw new Error('탐색이 취소됐어요.');}};
- check();if(!track?.applyConstraints)return;
- const settings=track.getSettings?.()||{};
- // Request HD only on lower-resolution streams. Ideal constraints keep older phones usable.
- if((settings.width||0)*(settings.height||0)<1280*720){
-  try{await track.applyConstraints({width:{ideal:1280},height:{ideal:720}});}catch{}
-  check();
-  const next=track.getSettings?.()||{};
-  for(let i=0;i<20&&next.width&&next.height&&(video.videoWidth!==next.width||video.videoHeight!==next.height);i++){await new Promise(r=>setTimeout(r,50));check();}
- }
- try{if(track.getCapabilities?.().focusMode?.includes('continuous'))await track.applyConstraints({...track.getConstraints?.(),advanced:[{focusMode:'continuous'}]});}catch{}
- check();
- video.setAttribute('width',video.videoWidth);video.setAttribute('height',video.videoHeight);
+export function normalizeContrast(data){
+ const bins=new Uint32Array(256);for(let i=0;i<data.length;i+=4)bins[Math.round(.299*data[i]+.587*data[i+1]+.114*data[i+2])]++;
+ const count=data.length/4;let lo=0,hi=255,n=0;
+ for(let i=0;i<256;i++){n+=bins[i];if(n>=count*.03){lo=i;break;}}
+ n=0;for(let i=255;i>=0;i--){n+=bins[i];if(n>=count*.03){hi=i;break;}}
+ if(hi-lo<15)return;
+ const gain=Math.min(2,255/(hi-lo));for(let i=0;i<data.length;i+=4)for(let j=0;j<3;j++)data[i+j]=Math.max(0,Math.min(255,(data[i+j]-lo)*gain));
+}
+// Serializes GPU/worker access. Cancellation invalidates results, including an in-flight match.
+export function serialMatcher(match){let tail=Promise.resolve();return (input,signal)=>{const run=tail.then(async()=>{if(signal.aborted)throw new DOMException('취소됨','AbortError');const result=await match(input);if(signal.aborted)throw new DOMException('취소됨','AbortError');return result;});tail=run.catch(()=>{});return run;};}
+export async function openCamera(video,signal,deviceId){
+ const stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{...(deviceId?{deviceId:{exact:deviceId}}:{facingMode:{ideal:'environment'}}),width:{ideal:640},height:{ideal:480},frameRate:{ideal:24,max:30}}});
+ if(signal.aborted){stream.getTracks().forEach(t=>t.stop());throw new DOMException('취소됨','AbortError');}
+ const stop=()=>stream.getTracks().forEach(t=>t.stop());signal.addEventListener('abort',stop,{once:true});
+ try{video.srcObject=stream;await video.play();const track=stream.getVideoTracks()[0];
+  try{if(track.getCapabilities?.().focusMode?.includes('continuous'))await track.applyConstraints({...track.getConstraints?.(),advanced:[{focusMode:'continuous'}]});}catch{}
+  if(signal.aborted)throw new DOMException('취소됨','AbortError');return stream;
+ }catch(e){stop();throw e;}
 }
