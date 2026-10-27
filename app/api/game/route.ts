@@ -100,7 +100,18 @@ export async function POST(req:Request){try{
   }else{
    if(!admin)fail("관리자만 사용할 수 있어요.",403);
    if(b.action==="unlock"){if(await hash(g.id+String(b.pin))!==row.pin_hash)fail("관리자 PIN이 맞지 않아요.",403);return json({ok:true});}
-   if(b.action==="start"){
+   if(b.action==="team_add"){
+    if(!/^[a-f0-9]{32}$/.test(b.requestId||""))fail("모둠 추가 창을 다시 열어주세요.");
+    const name=title(b.name),teamId="t"+(await hash(g.id+":team:"+b.requestId)).slice(0,24);
+    // Retrying a timed-out request must return the same team and participation link.
+    const existing=g.teams.find(t=>t.id===teamId);
+    if(existing){if(existing.name!==name)fail("모둠 추가 창을 다시 열어주세요.",409);return json({...project(row,g,token,true),message:"이미 추가된 모둠이에요."});}
+    if(g.phase==="ended")fail("종료된 수업에는 모둠을 추가할 수 없어요. 새 수업으로 복제해주세요.",409);
+    if(g.teams.length>=10)fail("한 수업에는 최대 10모둠까지 참여할 수 있어요.",409);
+    if(g.teams.some(t=>t.name===name))fail("이미 사용 중인 모둠 이름이에요. 다른 이름을 입력해주세요.",409);
+    g.teams.push({id:teamId,name,token:secret(),status:g.phase==="solve"?"ready":"searching",board:Array(36).fill(null),boardVersion:0,usedMs:0,startedAt:null,result:null});
+    message=`${name}을 추가했어요. 새 참여 링크를 전달해주세요.`;log(g,`${name} · 모둠 추가`);
+   }else if(b.action==="start"){
     if(g.mode==="ar"&&(!g.ar?.ready||!g.ar.targets.length||!g.ar.bundle))fail("AR 카드 배치를 완료하고 탐색 데이터를 저장해주세요.",409);
     if(g.mode==="ar"&&g.ar?.targets.some(t=>(!t.question&&!t.problemImage)||!t.answers?.length))fail("모든 물건에 수학문제와 정답을 등록해주세요.",409);
     if(g.phase!=="setup")fail("이미 시작된 수업이에요.",409);g.phase="search";g.searchEndsAt=now+g.searchMinutes*60000;log(g,"카드 수색이 시작됐어요.");
