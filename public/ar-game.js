@@ -32,7 +32,7 @@ $('search-halt-confirm').onclick=()=>$('search-halt-dialog').close();
 $('search-halt-dialog').addEventListener('cancel',e=>e.preventDefault());
 function backLink(){return '/#g='+session.id+'&'+(view.role==='admin'?'a':'t')+'='+session.token;}
 function canSearch(){return view?.role==='team'&&view.game.phase==='search'&&view.game.searchPausedMs==null&&view.game.teams[0].status==='searching'&&view.game.searchEndsAt>view.serverNow;}
-function canPlace(){return view?.role==='admin'&&(view.game.phase==='setup'||view.game.phase==='search');}
+function canPlace(){return view?.role==='admin'&&(view.game.phase==='setup'||view.game.phase==='search'&&(view.game.searchPausedMs!=null||view.game.searchEndsAt>view.serverNow));}
 function cardNode(card){const d=document.createElement('div');d.className='own-card';const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 100 100');const ports={N:[50,0],S:[50,100],E:[100,50],W:[0,50]};for(const side of card.shape){const l=document.createElementNS(svg.namespaceURI,'line');Object.entries({x1:50,y1:50,x2:ports[side][0],y2:ports[side][1],stroke:'currentColor','stroke-width':4}).forEach(([k,v])=>l.setAttribute(k,String(v)));svg.append(l);}const b=document.createElement('b');b.textContent=card.value;d.append(svg,b);return d;}
 function option(value,text){const o=document.createElement('option');o.value=value;o.textContent=text;return o;}
 function updateButtons(){const blocked=view?.role==='team'&&!canSearch();const ready=detected?.card&&!busy&&!blocked;$('claim').hidden=!detected?.card||!$('place-notice').hidden;$('question-form').hidden=!detected?.question;$('answer-submit').disabled=busy||blocked;$('answer-input').disabled=busy||blocked;mathKeypad.setDisabled(busy||blocked);$('claim').disabled=!ready;$('claim').textContent=ready?'발견한 카드 획득하기':'카드를 찾아보세요';const showingProblem=!!(detected?.question||detected?.card);$('precision-controls').hidden=showingProblem||!$('place-notice').hidden;$('camera').dataset.mode=$('precision-controls').hidden?'content':'search';$('precision-scan').disabled=blocked||photoBusy||!vision;$('resume-scan').disabled=blocked||photoBusy||!vision;$('precision-scan').textContent=photoBusy?'분석 중…':'정밀 인식';}
@@ -42,7 +42,7 @@ function render(){
  if(admin){
   const ar=g.ar,locked=!canPlace();
   $('placement-summary').textContent=`${ar.targets.length}개 물건 · ${ar.targets.reduce((n,t)=>n+t.cards.length,0)}장 배치 / 준비 ${g.cards.length}장 · ${ar.ready?'탐색 데이터 저장 완료':'배치 완료 후 저장 필요'}`;
-  $('publish').disabled=busy||g.phase!=='setup'||!ar.targets.length||ar.ready;$('publish').hidden=g.phase!=='setup';$('placement-mode').textContent=g.phase==='search'?'수색 중에도 새 장소를 추가할 수 있어요. 저장하면 학생 탐색에 자동 반영됩니다. 기존 장소와 문제는 유지됩니다.':'사진과 문제를 등록한 뒤 배치 완료를 눌러주세요.';$('place').disabled=busy||locked||!blob;
+  $('publish').disabled=busy||g.phase!=='setup'||!ar.targets.length||ar.ready;$('publish').hidden=g.phase!=='setup';$('placement-mode').textContent=g.phase==='search'?'수색 중에도 장소 추가와 배치 해제가 가능해요. 학생 탐색에 자동 반영되며, 이미 획득한 카드는 유지됩니다.':'사진과 문제를 등록한 뒤 배치 완료를 눌러주세요.';$('place').disabled=busy||locked||!blob;
   for(const id of ['label','photo','cards','auto-count','auto','question','answers','problem-image','problem-remove','bank-open'])$(id).disabled=busy||locked;
   for(const id of ['edit','edit-card','edit-value','edit-shape'])$(id).disabled=busy||g.phase!=='setup';
   if(versionSeen!==ar.version||targetRenderPhase!==g.phase){versionSeen=ar.version;targetRenderPhase=g.phase;renderTargets();}
@@ -57,7 +57,7 @@ function render(){
 }
 function fillCards(){const g=view.game,assigned=new Set(g.ar.targets.flatMap(t=>t.cards));$('cards').replaceChildren(...g.cards.filter(c=>!assigned.has(c.id)&&!c.owner).map(c=>option(c.id,`${c.id} · ${c.value} · ${shapes[c.shape]}`)));selectRandomCards();$('edit-card').replaceChildren(...g.cards.map(c=>option(c.id,`${c.id} · ${c.value} · ${shapes[c.shape]}`)));editSelection();}
 async function renderTargets(){fillCards();for(const u of urls)URL.revokeObjectURL(u);urls=[];$('targets').replaceChildren();const version=versionSeen;
- for(const t of view.game.ar.targets){const el=document.createElement('article');el.className='target';const h=document.createElement('h3');h.textContent=t.label;const description=document.createElement('p');description.textContent=t.cards.map(id=>{const c=view.game.cards.find(c=>c.id===id);return `${id}번 ${c?.value} (${shapes[c?.shape]})`;}).join(' · ');const button=document.createElement('button');button.textContent='배치 해제';button.className='secondary';button.disabled=view.game.phase!=='setup';button.onclick=async()=>{if(busy||!confirm('이 물건의 배치를 해제할까요? 카드는 준비 목록으로 돌아갑니다.'))return;busy=true;try{await arCall('remove',{targetId:t.id});await refresh();}catch(e){message(e.message);}finally{busy=false;render();}};el.append(h,description,button);
+ for(const t of view.game.ar.targets){const el=document.createElement('article');el.className='target';const h=document.createElement('h3');h.textContent=t.label;const description=document.createElement('p');description.textContent=t.cards.map(id=>{const c=view.game.cards.find(c=>c.id===id);return `${id}번 ${c?.value} (${shapes[c?.shape]})`;}).join(' · ');const button=document.createElement('button');button.textContent='배치 해제';button.className='secondary';button.disabled=!canPlace();button.onclick=async()=>{if(busy||!canPlace()||!confirm('이 장소의 배치를 해제할까요? 아직 획득하지 않은 카드는 준비 목록으로 돌아가고, 이미 획득한 카드는 모둠 보관함에 유지됩니다.'))return;busy=true;try{await arCall('remove',{targetId:t.id,version:view.game.ar.version});await refresh();message('배치를 해제했습니다. 이미 획득한 카드는 유지됩니다.');}catch(e){message(e.message);}finally{busy=false;render();}};el.append(h,description,button);
  const details=problemEditor(t,version);el.append(details);$('targets').append(el);
  fetch(api+'&asset=photo&target='+t.id,{headers:headers()}).then(async r=>{if(!r.ok)return;const b=await r.blob();if(versionSeen!==version)return;const u=URL.createObjectURL(b);urls.push(u);const img=new Image();img.alt='교사용 '+t.label;img.src=u;el.prepend(img);}).catch(()=>{});
  }}
@@ -108,9 +108,9 @@ function maybeUpdateRecognition(){
 function placeNotice(kind){
  $('place-notice').hidden=!kind;
  if(!kind)return;
- const own=kind==='own',success=kind==='success';
- $('place-notice-title').textContent=success?'카드 획득 완료':own?'우리 모둠이 이미 획득한 장소':'다른 모둠이 모두 획득한 장소';
- $('place-notice-detail').textContent=success?'우리 모둠 보관함에 저장했어요. 이 장소에서는 더 이상 획득할 수 없어요.':own?'같은 장소에서는 모둠당 1장만 획득할 수 있어요. 다른 장소를 찾아주세요.':'이 장소에 남은 카드가 없어요. 다른 장소를 찾아주세요.';
+ const own=kind==='own',success=kind==='success',removed=kind==='removed';
+ $('place-notice-title').textContent=removed?'선생님이 배치를 해제한 장소':success?'카드 획득 완료':own?'우리 모둠이 이미 획득한 장소':'다른 모둠이 모두 획득한 장소';
+ $('place-notice-detail').textContent=removed?'이 장소에서는 더 이상 획득할 수 없어요. 다른 장소를 찾아주세요.':success?'우리 모둠 보관함에 저장했어요. 이 장소에서는 더 이상 획득할 수 없어요.':own?'같은 장소에서는 모둠당 1장만 획득할 수 있어요. 다른 장소를 찾아주세요.':'이 장소에 남은 카드가 없어요. 다른 장소를 찾아주세요.';
 }
 function resumeSearch(){
  if(photoBusy||!vision||!canSearch())return;
@@ -124,7 +124,7 @@ function present(d,index){
  if(d.question){activeTarget=d.question.targetId;vision?.clear();$('reward').hidden=true;$('question-text').textContent=d.question.prompt;void questionImage(d.question.image||null);if(previous?.question?.targetId!==d.question.targetId){$('answer-input').value='';mathKeypad.reset();$('answer-feedback').textContent='';}$('camera-state').textContent='수학문제 발견';$('camera-help').textContent='정답을 맞히면 숨겨진 카드가 나타납니다.';}
  else if(d.card){activeTarget=scanTargets[index]?.id||activeTarget;if(found===index)vision?.show(index,d.card);$('reward').replaceChildren(cardNode(d.card));$('reward').hidden=false;$('camera-state').textContent='정답 확인 · 카드 발견';$('camera-help').textContent='카드를 획득해 우리 모둠 보관함에 넣으세요.';}
  else{activeTarget=null;found=-1;vision?.clear();$('reward').hidden=true;
-  const kind=d.claimed?'own':d.exhausted?'other':null;placeNotice(kind);
+  const kind=d.removed?'removed':d.claimed?'own':d.exhausted?'other':null;placeNotice(kind);
   $('camera-state').textContent=kind?'이 장소는 획득할 수 없어요':'탐색 중';
   $('camera-help').textContent=kind?'아래 안내를 확인하고 다른 장소를 탐색하세요.':'물건 앞면을 중앙에 비춰주세요.';
  }
@@ -137,7 +137,7 @@ $('question-form').onsubmit=async e=>{e.preventDefault();if(busy||!detected?.que
 $('question-cancel').onclick=()=>{clearQuestionImage();resumeSearch();};
 $('place-notice-next').onclick=resumeSearch;
 async function startScan(retries=0){if(scanStarting||vision||!canSearch())return;message('');scanStarting=true;const epoch=++scanEpoch;abort=new AbortController();const signal=abort.signal;$('camera').hidden=false;document.body.classList.add('scanning');$('camera-state').textContent='카메라 준비 중';$('camera-help').textContent='카메라 접근을 허용해주세요.';
- try{void prepareVision().catch(()=>{});const meta=await response(await fetch(api,{headers:headers(),signal}));const b=await loadRecognitionBundle({url:api+'&asset=bundle',headers:headers(),version:meta.bundleVersion,signal,combine:combineTargets,onStage(stage){if(epoch!==scanEpoch)return;const labels={download:'인식 데이터 불러오는 중',combine:'인식 데이터 준비 중 · 처음 한 번만 필요해요',saving:'휴대폰에 인식 데이터 저장 중',cached:'저장된 인식 데이터 사용 · 카메라 준비 중',saved:'인식 데이터 저장 완료 · 카메라 준비 중',session:'카메라 준비 중 · 이 화면에서는 데이터를 재사용해요'};$('camera-help').textContent=labels[stage]||'탐색 준비 중';},onProgress(done,total){if(epoch===scanEpoch)$('camera-help').textContent=`탐색 준비 중 · ${done}/${total}`;}});if(epoch!==scanEpoch)return;scanTargets=meta.targets;scanVersion=meta.version;
+ try{void prepareVision().catch(()=>{});const meta=await response(await fetch(api,{headers:headers(),signal}));if(epoch!==scanEpoch)return;if(!meta.targets.length){close();message('현재 탐색할 장소가 없어요. 선생님이 장소를 추가한 뒤 AR 탐색을 다시 눌러주세요.');return;}const b=await loadRecognitionBundle({url:api+'&asset=bundle',headers:headers(),version:meta.bundleVersion,signal,combine:combineTargets,onStage(stage){if(epoch!==scanEpoch)return;const labels={download:'인식 데이터 불러오는 중',combine:'인식 데이터 준비 중 · 처음 한 번만 필요해요',saving:'휴대폰에 인식 데이터 저장 중',cached:'저장된 인식 데이터 사용 · 카메라 준비 중',saved:'인식 데이터 저장 완료 · 카메라 준비 중',session:'카메라 준비 중 · 이 화면에서는 데이터를 재사용해요'};$('camera-help').textContent=labels[stage]||'탐색 준비 중';},onProgress(done,total){if(epoch===scanEpoch)$('camera-help').textContent=`탐색 준비 중 · ${done}/${total}`;}});if(epoch!==scanEpoch)return;scanTargets=meta.targets;scanVersion=meta.version;
  const started=await startVision({container:$('ar-container'),blob:b,bundleVersion:meta.bundleVersion,count:scanTargets.length,signal,onStatus(text){if(epoch===scanEpoch&&!activeTarget)$('camera-help').textContent=text;},onFound(index){if(epoch!==scanEpoch||!canSearch()||activeTarget)return;found=index;activeTarget=scanTargets[index].id;$('camera-state').textContent='물건 인식 완료';$('camera-help').textContent='수학문제를 불러옵니다.';void discover();}});
  if(epoch!==scanEpoch){started.stop();return;}vision=started;$('camera-state').textContent='탐색 중';$('camera-help').textContent='물건 앞면을 중앙에 비춰주세요.';
 

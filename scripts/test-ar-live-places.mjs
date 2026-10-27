@@ -15,7 +15,7 @@ assert.equal((await ar('publish',{version:2})).status,200);
 assert.equal((await game('start')).status,200);
 const initial=await meta(),first=initial.targets[0].id;
 assert.equal((await ar('upload',form(3,2),a.token)).status,403);
-assert.equal((await ar('remove',{targetId:first})).status,409);
+assert.equal((await ar('remove',{targetId:first},a.token)).status,403);
 assert.equal((await ar('problem',{targetId:first,question:'changed',answers:['8']})).status,409);
 assert.equal((await ar('answer',{targetId:first,answer:'5'},a.token)).data.correct,true);
 const won=await ar('discover',{targetId:first},a.token);

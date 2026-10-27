@@ -29,7 +29,7 @@ async function problemIdentity(targets:ArSetup['targets'],requested:unknown,prep
 async function discovered(a:Awaited<ReturnType<typeof auth>>,targetId:string){
  const target=a.ar.targets.find(t=>t.id===targetId),card=target?a.g.cards.find(c=>target.cards.includes(c.id)&&!c.owner):undefined;
  if(target&&hasClaimedAtTarget(a.g,target,a.team!.id))return {card:null,code:null,claimed:true};
- if(!target)return {card:null,code:null};
+ if(!target)return {card:null,code:null,removed:true};
  if(!card)return {card:null,code:null,exhausted:true};
  if(!target.solvedBy?.includes(a.team!.id))return {question:{targetId:target.id,prompt:target.question,image:target.problemImage?`/api/game-ar?id=${a.g.id}&asset=problem&target=${target.id}&ticket=${await imageTicket(target.problemImage,a.team!.token!)}`:null},card:null,code:null};
  return {card:{id:card.id,value:card.value,shape:card.shape},code:card.secret};
@@ -107,7 +107,7 @@ export async function POST(req:Request){try{
   fail("잠시 후 답을 다시 제출해주세요.",409);
  }
  if(!a.admin)fail("교사만 사용할 수 있어요.",403);
- if(a.g.phase!=="setup"&&!(action==="upload"&&canAppend(a.g)))fail("수색 중에는 새 장소만 추가할 수 있어요. 기존 배치와 문제는 수색 시작 전에 수정해주세요.",409);
+ if(a.g.phase!=="setup"&&!((action==="upload"||action==="remove")&&canAppend(a.g)))fail("수색 중에는 장소 추가와 배치 해제만 가능해요. 문제 수정은 수색 시작 전에 해주세요.",409);
  if(!env.BUCKET)fail("사진 저장소에 연결하지 못했어요.",503);
  if(action==="publish"&&req.headers.get("content-type")?.startsWith("application/json")){
   const raw=await req.text();if(raw.length>300)fail("잘못된 저장 요청입니다.");const b=JSON.parse(raw);
@@ -123,8 +123,23 @@ export async function POST(req:Request){try{
  }
  if(action==="remove"){
   const raw=await req.text();if(raw.length>300)fail("요청이 너무 큽니다.");const b=JSON.parse(raw);
+  if(b.version!==undefined&&b.version!==a.ar.version)fail("배치가 변경됐어요. 새로고침 후 다시 시도해주세요.",409);
   if(!a.ar.targets.some(t=>t.id===b.targetId))fail("등록한 물건이 아니에요.");
-  await save(a,{...a.ar,version:a.ar.version+1,ready:false,bundle:null,targets:a.ar.targets.filter(t=>t.id!==b.targetId)});return json({ok:true});
+  // Replace the ordered recognition index atomically. Keep immutable files for
+  // cached clients and cloned lessons, and never alter already collected cards.
+  const manifestKey=a.g.phase==="search"?`game-ar/${a.g.id}/manifest-${secret()}`:null;
+  try{
+   if(manifestKey)await env.BUCKET.put(manifestKey,JSON.stringify({parts:a.ar.targets.filter(t=>t.id!==b.targetId).map(t=>`${t.key}/target`)}),{customMetadata:{arFormat:"targets-v1"}});
+   for(let retry=0;retry<6;retry++){
+    const current=await auth(req);
+    if(current.g.phase!==a.g.phase||!(current.g.phase==="setup"||canAppend(current.g)))fail("수업 단계가 변경됐어요. 화면을 새로고침해주세요.",409);
+    if(current.ar.version!==a.ar.version)fail("배치가 변경됐어요. 새로고침 후 다시 시도해주세요.",409);
+    const targets=current.ar.targets.filter(t=>t.id!==b.targetId);
+    try{await save(current,{...current.ar,version:current.ar.version+1,ready:!!manifestKey,bundle:manifestKey,targets});return json({ok:true});}
+    catch(e){if(!(e instanceof ApiError)||e.status!==409)throw e;}
+   }
+   fail("다른 모둠의 기록을 저장 중입니다. 잠시 후 다시 해제해주세요.",409);
+  }catch(e){if(manifestKey)await env.BUCKET.delete(manifestKey);throw e;}
  }
  if(action==="problem"){
   let b:any,file:FormDataEntryValue|null=null;
